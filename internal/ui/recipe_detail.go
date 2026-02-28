@@ -3,12 +3,33 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/gorecipes/internal/models"
+	"github.com/muesli/termenv"
 )
+
+var (
+	glamourStyleOnce sync.Once
+	glamourStyleName string
+)
+
+// detectedGlamourStyle queries the terminal background colour exactly once and
+// returns the matching glamour style name ("dark" or "light"). Subsequent calls
+// return the cached result instantly, avoiding the OSC round-trip on every render.
+func detectedGlamourStyle() string {
+	glamourStyleOnce.Do(func() {
+		if termenv.HasDarkBackground() {
+			glamourStyleName = "dark"
+		} else {
+			glamourStyleName = "light"
+		}
+	})
+	return glamourStyleName
+}
 
 type detailFocus int
 
@@ -36,8 +57,13 @@ type DetailModel struct {
 }
 
 // NewDetailModel creates a DetailModel for the given recipe.
+// It detects the terminal background colour and pre-renders content before
+// the TUI starts so the first frame and any resize redraws are instant.
 func NewDetailModel(recipe *models.Recipe) DetailModel {
-	return DetailModel{recipe: recipe, width: 80, height: 24}
+	detectedGlamourStyle() // warm up the cache before entering the event loop
+	m := DetailModel{recipe: recipe, width: 80, height: 24}
+	m.lines = m.buildLines()
+	return m
 }
 
 // GoHome returns true when the user selected "home".
@@ -364,7 +390,7 @@ func buildIngredientLines(ings []models.RecipeIngredient) string {
 
 func renderMarkdown(text string, width int) string {
 	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(detectedGlamourStyle()),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {
