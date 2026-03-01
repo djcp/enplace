@@ -1064,10 +1064,10 @@ func renderEditBanner(name string, width int) string {
 
 func renderEditFooter(width int) string {
 	keys := []string{
-		"tab next",
-		"shift+tab back",
-		"ctrl+s save",
-		"esc cancel",
+		"⇥ tab next",
+		"⇤ shift+tab back",
+		"💾 ctrl+s save",
+		"✖ esc cancel",
 	}
 	line := "  " + strings.Join(keys, "   ")
 	return lipgloss.NewStyle().

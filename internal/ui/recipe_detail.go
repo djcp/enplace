@@ -528,13 +528,13 @@ func renderDetailFooter(focus detailFocus, width int) string {
 	}
 
 	keys := []string{
-		"↑/↓ scroll",
-		"/ search",
-		homeStyle.Render("h home"),
-		MutedStyle.Render("e edit"),
-		MutedStyle.Render("a add"),
-		MutedStyle.Render("d delete"),
-		"q quit",
+		"📜 ↑/↓ scroll",
+		"🔍 / search",
+		homeStyle.Render("🏠 h home"),
+		MutedStyle.Render("✏️ e edit"),
+		MutedStyle.Render("➕ a add"),
+		MutedStyle.Render("🗑 d delete"),
+		"🚪 q quit",
 	}
 	line := "  " + strings.Join(keys, "   ")
 

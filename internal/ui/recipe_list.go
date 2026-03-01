@@ -342,14 +342,14 @@ func renderRecipeRow(r models.Recipe, selected bool, width int) string {
 
 func renderFooter(width int) string {
 	keys := []string{
-		"↑/↓ navigate",
-		"/ search",
-		"enter view",
-		"e edit",
-		"d delete",
-		"a add",
-		"h home",
-		"q quit",
+		"🧭 ↑/↓ navigate",
+		"🔍 / search",
+		"👁 enter view",
+		"✏️ e edit",
+		"🗑 d delete",
+		"➕ a add",
+		"🏠 h home",
+		"🚪 q quit",
 	}
 	line := "  " + strings.Join(keys, "   ")
 	return lipgloss.NewStyle().
@@ -405,8 +405,8 @@ func (m ListModel) viewConfirm() string {
 }
 
 func renderConfirmFooter(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("y  delete")
-	line := "  " + yKey + "   " + MutedStyle.Render("esc  cancel")
+	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("🗑 y delete")
+	line := "  " + yKey + "   " + MutedStyle.Render("✖ esc cancel")
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
