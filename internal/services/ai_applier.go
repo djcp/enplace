@@ -9,16 +9,24 @@ import (
 // ApplyExtractedRecipe writes all AI-extracted data to an existing recipe row.
 // It replaces ingredients and tags, then sets the recipe status to "review".
 func ApplyExtractedRecipe(sqlDB *sqlx.DB, recipeID int64, extracted *ExtractedRecipe) error {
+	// Preserve fields the AI result must not overwrite (e.g. source_url).
+	existing, err := db.GetRecipe(sqlDB, recipeID)
+	if err != nil {
+		return err
+	}
+
 	// Build the updated recipe model.
 	r := &models.Recipe{
-		ID:          recipeID,
-		Name:        extracted.Name,
-		Description: extracted.Description,
-		Directions:  extracted.Directions,
+		ID:              recipeID,
+		Name:            extracted.Name,
+		Description:     extracted.Description,
+		Directions:      extracted.Directions,
 		PreparationTime: extracted.PreparationTime,
 		CookingTime:     extracted.CookingTime,
 		Servings:        extracted.Servings,
-		Status:      models.StatusReview,
+		Status:          models.StatusReview,
+		SourceURL:       existing.SourceURL,
+		SourceText:      existing.SourceText,
 	}
 	if extracted.ServingUnits != nil {
 		r.ServingUnits = *extracted.ServingUnits

@@ -873,6 +873,13 @@ func (m EditModel) buildForm() (string, int) {
 	write(descBlock.Render(m.descInput.View()))
 	write("\n\n")
 
+	// Source URL — read-only; displayed only when present.
+	if m.sourceURL != "" {
+		lbl := MutedStyle.Width(14).Render("Source URL:")
+		url := lipgloss.NewStyle().Foreground(ColorPrimary).Render(truncate(m.sourceURL, w-20))
+		write("  " + lbl + url + "\n\n")
+	}
+
 	// Prep / Cook — inline fields; use bold+color for focus to stay single-line.
 	prepLbl := MutedStyle.Render("Prep: ")
 	cookLbl := MutedStyle.Render("  Cook: ")
@@ -894,13 +901,6 @@ func (m EditModel) buildForm() (string, int) {
 		"  " +
 		renderInlineField(m.servingUnitsInput, focused(efServingUnits)))
 	write("\n")
-
-	// Source URL — read-only; displayed only when present.
-	if m.sourceURL != "" {
-		lbl := MutedStyle.Width(14).Render("Source URL:")
-		url := lipgloss.NewStyle().Foreground(ColorPrimary).Render(truncate(m.sourceURL, w-20))
-		write("  " + lbl + url + "\n\n")
-	}
 
 	// Tag sections.
 	tagFocuses := []struct {
