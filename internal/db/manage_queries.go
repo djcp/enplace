@@ -1,11 +1,27 @@
 package db
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/djcp/gorecipes/internal/models"
 	"github.com/jmoiron/sqlx"
 )
+
+// execTx runs each step inside a single transaction, rolling back on the first error.
+func execTx(db *sqlx.DB, steps ...func(*sql.Tx) error) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if err := step(tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 // TagWithCount is a tag row augmented with the number of recipes using it.
 type TagWithCount struct {
@@ -67,30 +83,24 @@ func RenameTag(db *sqlx.DB, id int64, newName string) error {
 
 // MergeTag repoints all recipe_tags from sourceID to targetID, then deletes the source tag.
 func MergeTag(db *sqlx.DB, sourceID, targetID int64) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	// Move recipe_tags rows from source → target, skipping duplicates.
-	if _, err := tx.Exec(`
-		INSERT OR IGNORE INTO recipe_tags (recipe_id, tag_id)
-		SELECT recipe_id, ? FROM recipe_tags WHERE tag_id = ?`,
-		targetID, sourceID,
-	); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	// Remove old associations.
-	if _, err := tx.Exec(`DELETE FROM recipe_tags WHERE tag_id = ?`, sourceID); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	// Remove the source tag row.
-	if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, sourceID); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
+	return execTx(db,
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`
+				INSERT OR IGNORE INTO recipe_tags (recipe_id, tag_id)
+				SELECT recipe_id, ? FROM recipe_tags WHERE tag_id = ?`,
+				targetID, sourceID,
+			)
+			return err
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`DELETE FROM recipe_tags WHERE tag_id = ?`, sourceID)
+			return err
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, sourceID)
+			return err
+		},
+	)
 }
 
 // DeleteTag removes a tag row; recipe_tags cascade-deletes automatically.
@@ -123,22 +133,19 @@ func RenameIngredient(db *sqlx.DB, id int64, newName string) error {
 // MergeIngredient repoints all recipe_ingredient rows from source to target,
 // then deletes the source ingredient.
 func MergeIngredient(db *sqlx.DB, sourceID, targetID int64) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE recipe_ingredients SET ingredient_id = ? WHERE ingredient_id = ?`,
-		targetID, sourceID,
-	); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM ingredients WHERE id = ?`, sourceID); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
+	return execTx(db,
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(
+				`UPDATE recipe_ingredients SET ingredient_id = ? WHERE ingredient_id = ?`,
+				targetID, sourceID,
+			)
+			return err
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`DELETE FROM ingredients WHERE id = ?`, sourceID)
+			return err
+		},
+	)
 }
 
 // --- Unit management ---
