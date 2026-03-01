@@ -229,7 +229,10 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// After a pipeline failure: allow navigation.
 	if m.phase == addPhaseResult {
 		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
+			m.goHome = true
 			return m, tea.Quit
 		case "h":
 			m.goHome = true
@@ -295,8 +298,9 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.startPipeline("", text)
 			return m, tea.Batch(waitForStep(m.stepCh), waitForAddDone(m.doneCh), tickCmd())
 		case "esc":
-			m.goHome = true
-			return m, tea.Quit
+			// Back to mode selection.
+			m.phase = addPhaseMode
+			return m, nil
 		}
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
@@ -308,8 +312,9 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.goHome = true
-		return m, tea.Quit
+		// Back to mode selection.
+		m.phase = addPhaseMode
+		return m, nil
 	case "enter":
 		url := strings.TrimSpace(m.urlInput)
 		if url == "" {

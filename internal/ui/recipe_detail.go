@@ -190,11 +190,21 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 
-	case "q", "esc":
+	case "q":
 		switch m.focus {
 		case detailFocusFooter:
 			m.focus = detailFocusContent
 		default:
+			return m, tea.Quit
+		}
+	case "esc":
+		switch m.focus {
+		case detailFocusFooter:
+			m.focus = detailFocusContent
+		default:
+			// Go back to the list (preserving any active search query).
+			m.goHome = true
+			m.returnQuery = m.query
 			return m, tea.Quit
 		}
 

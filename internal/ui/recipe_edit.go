@@ -300,8 +300,10 @@ func (m EditModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.errMsg = ""
 		m.saved = true
 		return m, tea.Quit
-	case "esc", "ctrl+c":
+	case "esc":
 		m.goHome = true
+		return m, tea.Quit
+	case "ctrl+c":
 		return m, tea.Quit
 	}
 

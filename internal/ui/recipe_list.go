@@ -129,9 +129,16 @@ func (m ListModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc":
+	case "q":
 		m.quitting = true
 		return m, tea.Quit
+	case "esc":
+		if m.query != "" {
+			// Clear active filter and return to the full list.
+			m.goHome = true
+			return m, tea.Quit
+		}
+		// Nothing to go back to — do nothing.
 	case "a":
 		m.goAdd = true
 		return m, tea.Quit
