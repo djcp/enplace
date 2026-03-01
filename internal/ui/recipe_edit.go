@@ -632,6 +632,7 @@ func (m *EditModel) advanceFocus() {
 	m.blurCurrent()
 	m.focused = (m.focused + 1) % efCount
 	m.focusCurrent()
+	m.ensureFocusVisible()
 }
 
 func (m *EditModel) retreatFocus() {
@@ -642,6 +643,100 @@ func (m *EditModel) retreatFocus() {
 		m.focused--
 	}
 	m.focusCurrent()
+	m.ensureFocusVisible()
+}
+
+// estimateFocusLine returns the approximate formLines index of the focused
+// field, computed from the known per-section heights in buildForm.
+//
+// Each section's height (in newlines) depends on whether it is currently
+// focused (bordered box, taller) or not (compact single-line / base height).
+// The helper h(f, compact, expanded) returns compact when f != m.focused.
+func (m EditModel) estimateFocusLine() int {
+	h := func(f editFocus, compact, expanded int) int {
+		if m.focused == f {
+			return expanded
+		}
+		return compact
+	}
+
+	line := 1 // after opening \n in buildForm
+
+	if m.focused == efName {
+		return line
+	}
+	line += h(efName, 1, 3) // single-line field (+\n) or 3-line border box (+\n)
+
+	if m.focused == efStatus {
+		return line
+	}
+	line += h(efStatus, 2, 4) // single-line (+\n\n) or 3-line box (+\n\n)
+
+	// "Description:" label occupies one line before the textarea.
+	if m.focused == efDescription {
+		return line + 1 // skip the label line to show the input
+	}
+	line += 1 + h(efDescription, 4, 6) // label\n + 3-line textarea+\n\n (or 5-line when focused)
+
+	if m.focused == efPrepTime || m.focused == efCookTime {
+		return line
+	}
+	line++ // "Prep: X  Cook: Y" inline row
+
+	if m.focused == efServings || m.focused == efServingUnits {
+		return line
+	}
+	line++ // "Servings: N units" inline row
+
+	if m.sourceURL != "" {
+		line += 2 // "Source URL: …\n\n"
+	}
+
+	if m.focused == efTagCourses {
+		return line
+	}
+	line += h(efTagCourses, 1, 3)
+
+	if m.focused == efTagCooking {
+		return line
+	}
+	line += h(efTagCooking, 1, 3)
+
+	if m.focused == efTagCultural {
+		return line
+	}
+	line += h(efTagCultural, 1, 3)
+
+	if m.focused == efTagDietary {
+		return line
+	}
+	line += h(efTagDietary, 1, 3) + 1 // +1 for blank line after tag block
+
+	if m.focused == efIngredients {
+		return line
+	}
+	// Ingredients header (1) + col-header (1) + N rows + hint (1) + \n\n (2)
+	line += 2 + len(m.ingRows) + 3
+
+	if m.focused == efDirections {
+		return line + 1 // skip "Directions:" label to show the textarea
+	}
+
+	return line
+}
+
+// ensureFocusVisible adjusts m.scroll so the focused field is within the viewport.
+func (m *EditModel) ensureFocusVisible() {
+	target := m.estimateFocusLine()
+	vh := m.viewportHeight()
+	if target < m.scroll {
+		m.scroll = target
+	} else if target >= m.scroll+vh {
+		m.scroll = target - vh + 2
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
 }
 
 func (m *EditModel) blurCurrent() {
