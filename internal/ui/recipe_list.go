@@ -308,12 +308,18 @@ func renderBanner(width int) string {
 
 func renderSearchBar(query string, typing bool, width int) string {
 	prefix := MutedStyle.Render("  / ")
+	cursor := lipgloss.NewStyle().
+		Background(ColorPrimary).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Render(" ")
+
 	var content string
 	if typing {
-		content = query + lipgloss.NewStyle().
-			Background(ColorPrimary).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Render(" ")
+		if query == "" {
+			content = MutedStyle.Render("search by title or ingredient...") + cursor
+		} else {
+			content = query + cursor
+		}
 	} else if query != "" {
 		content = lipgloss.NewStyle().Foreground(ColorPrimary).Render(query)
 	} else {
