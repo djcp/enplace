@@ -57,51 +57,79 @@ func runList(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Load edit autocomplete data once; refreshed after each successful edit.
+	editData, err := loadEditData()
+	if err != nil {
+		return fmt.Errorf("loading edit data: %w", err)
+	}
+
+	// pendingDetailID, when > 0, skips the list view and opens this recipe's
+	// detail view directly (used after editing from the detail view).
+	var pendingDetailID int64
+
 	// Interactive path: loop between the list browser and recipe detail view.
-	// When the user selects "home" from a recipe, control returns here and the
-	// list re-opens, optionally with a search query carried over from the detail view.
 	for {
 		recipes, err := db.ListRecipes(sqlDB, filter)
 		if err != nil {
 			return fmt.Errorf("loading recipes: %w", err)
 		}
 
-		if len(recipes) == 0 && filter.Query == "" && filter.StatusFilter == "" {
-			// Database is genuinely empty — no point opening the TUI.
-			fmt.Println(ui.MutedStyle.Render("\n  No recipes found."))
-			fmt.Println(ui.MutedStyle.Render("  Add one with: gorecipes add <url>"))
-			fmt.Println()
-			return nil
-		}
+		var selectedID int64
 
-		selectedID, goAdd, goHome, searchConfirmed, searchQuery, deleteID, err := ui.RunListUI(recipes, filter.Query)
-		if err != nil {
-			return err
-		}
-		if goHome {
-			filter.Query = ""
-			continue // re-fetch from DB without filter
-		}
-		if searchConfirmed {
-			filter.Query = searchQuery
-			continue // re-fetch from DB with new filter
-		}
-		if deleteID > 0 {
-			if err := db.DeleteRecipe(sqlDB, deleteID); err != nil {
-				return fmt.Errorf("deleting recipe: %w", err)
-			}
-			continue // re-fetch list without the deleted recipe
-		}
-		if goAdd {
-			if err := runAdd(nil, nil); err != nil {
+		if pendingDetailID > 0 {
+			// Skip the list and go straight to the detail view.
+			selectedID = pendingDetailID
+			pendingDetailID = 0
+		} else {
+			var goAdd, goHome, searchConfirmed bool
+			var searchQuery string
+			var deleteID, editID int64
+
+			selectedID, goAdd, goHome, searchConfirmed, searchQuery, deleteID, editID, err = ui.RunListUI(recipes, filter.Query)
+			if err != nil {
 				return err
 			}
-			filter.Query = ""
-			continue
-		}
-		if selectedID == 0 {
-			// User quit from the list.
-			break
+			if goHome {
+				filter.Query = ""
+				continue
+			}
+			if searchConfirmed {
+				filter.Query = searchQuery
+				continue
+			}
+			if deleteID > 0 {
+				if err := db.DeleteRecipe(sqlDB, deleteID); err != nil {
+					return fmt.Errorf("deleting recipe: %w", err)
+				}
+				continue
+			}
+			if editID > 0 {
+				recipeToEdit, err := db.GetRecipe(sqlDB, editID)
+				if err != nil {
+					return err
+				}
+				toSave, tagNames, _, err := ui.RunEditUI(recipeToEdit, editData)
+				if err != nil {
+					return err
+				}
+				if toSave != nil {
+					if err := db.SaveRecipe(sqlDB, toSave, tagNames); err != nil {
+						return fmt.Errorf("saving recipe: %w", err)
+					}
+					editData, _ = loadEditData()
+				}
+				continue
+			}
+			if goAdd {
+				if err := runAdd(nil, nil); err != nil {
+					return err
+				}
+				filter.Query = ""
+				continue
+			}
+			if selectedID == 0 {
+				break
+			}
 		}
 
 		recipe, err := db.GetRecipe(sqlDB, selectedID)
@@ -109,8 +137,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		var deleteConfirmed bool
-		goHome, goAdd, deleteConfirmed, searchQuery, err = ui.RunDetailUI(recipe)
+		goHome, goAdd, goEdit, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
 		if err != nil {
 			return err
 		}
@@ -121,6 +148,21 @@ func runList(_ *cobra.Command, _ []string) error {
 			filter.Query = ""
 			continue
 		}
+		if goEdit {
+			toSave, tagNames, _, err := ui.RunEditUI(recipe, editData)
+			if err != nil {
+				return err
+			}
+			if toSave != nil {
+				if err := db.SaveRecipe(sqlDB, toSave, tagNames); err != nil {
+					return fmt.Errorf("saving recipe: %w", err)
+				}
+				editData, _ = loadEditData()
+			}
+			// Re-open detail with the (possibly updated) recipe.
+			pendingDetailID = recipe.ID
+			continue
+		}
 		if goAdd {
 			if err := runAdd(nil, nil); err != nil {
 				return err
@@ -129,11 +171,10 @@ func runList(_ *cobra.Command, _ []string) error {
 			continue
 		}
 		if !goHome {
-			// User quit from the detail view.
 			break
 		}
 
-		// User chose "home" — loop back to the list, applying any search they typed.
+		// User chose "home" — loop back to the list.
 		filter.Query = searchQuery
 	}
 

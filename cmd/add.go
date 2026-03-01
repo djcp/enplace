@@ -12,7 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var pasteFlag bool
+var (
+	pasteFlag bool
+	quietFlag bool
+)
 
 var addCmd = &cobra.Command{
 	Use:   "add [url]",
@@ -22,13 +25,20 @@ var addCmd = &cobra.Command{
 Provide a URL as an argument, or use --paste to enter text directly:
 
   gorecipes add https://example.com/recipe
-  gorecipes add --paste`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runAdd,
+  gorecipes add --paste
+
+Use --quiet to extract and save without launching the UI (exits 0 on success,
+non-zero with an error message on stderr on failure — useful for scripting):
+
+  gorecipes add --quiet https://example.com/recipe`,
+	Args:         cobra.MaximumNArgs(1),
+	RunE:         runAdd,
+	SilenceUsage: true, // don't dump usage text to stderr on error
 }
 
 func init() {
 	addCmd.Flags().BoolVarP(&pasteFlag, "paste", "p", false, "Paste recipe text instead of providing a URL")
+	addCmd.Flags().BoolVarP(&quietFlag, "quiet", "q", false, "Extract and save without launching the UI (for scripting)")
 }
 
 func runAdd(_ *cobra.Command, args []string) error {
@@ -41,8 +51,17 @@ func runAdd(_ *cobra.Command, args []string) error {
 		}
 	}
 
+	if quietFlag {
+		if initialURL == "" {
+			return fmt.Errorf("--quiet requires a URL argument")
+		}
+		if pasteFlag {
+			return fmt.Errorf("--quiet and --paste cannot be used together")
+		}
+		return runAddQuiet(initialURL)
+	}
+
 	// launchFn creates the draft recipe and runs the extraction pipeline.
-	// It is called by AddModel once the user submits the form.
 	launchFn := ui.PipelineLaunchFn(func(ctx context.Context, sourceURL, sourceText string, onStep func(int, string)) (int64, error) {
 		draft := &models.Recipe{
 			Status:     models.StatusDraft,
@@ -64,7 +83,32 @@ func runAdd(_ *cobra.Command, args []string) error {
 		return recipeID, err
 	})
 
-	recipeID, goHome, goAdd, pipeErr := ui.RunAddUI(pasteFlag, initialURL, launchFn)
+	recipeID, goHome, goAdd, goManual, pipeErr := ui.RunAddUI(pasteFlag, initialURL, launchFn)
+
+	if goManual {
+		editData, err := loadEditData()
+		if err != nil {
+			return err
+		}
+		toSave, tagNames, goHome2, err := ui.RunEditUI(nil, editData)
+		if err != nil {
+			return err
+		}
+		if goHome2 {
+			return runList(nil, nil)
+		}
+		if toSave != nil {
+			if err := db.SaveRecipe(sqlDB, toSave, tagNames); err != nil {
+				return fmt.Errorf("saving recipe: %w", err)
+			}
+			recipe, err := db.GetRecipe(sqlDB, toSave.ID)
+			if err != nil {
+				return err
+			}
+			return runDetailLoop(recipe)
+		}
+		return nil
+	}
 
 	if goAdd {
 		return runAdd(nil, nil)
@@ -82,24 +126,78 @@ func runAdd(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	goHome2, goAdd2, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
+	return runDetailLoop(recipe)
+}
+
+// runAddQuiet runs the extraction pipeline without any TUI.
+// On success it returns nil (exit 0). On failure it returns the error (exit 1,
+// cobra writes the message to stderr), and removes the orphaned draft record.
+func runAddQuiet(sourceURL string) error {
+	draft := &models.Recipe{
+		Status:    models.StatusDraft,
+		SourceURL: sourceURL,
+		Name:      "(importing...)",
+	}
+	recipeID, err := db.CreateRecipe(sqlDB, draft)
 	if err != nil {
+		return fmt.Errorf("creating recipe: %w", err)
+	}
+
+	pipelineCfg := services.PipelineConfig{
+		DB:     sqlDB,
+		Client: services.NewAnthropicClient(cfg.AnthropicAPIKey),
+		Model:  cfg.AnthropicModel,
+		OnStep: func(int, string) {}, // silence progress callbacks
+	}
+	if _, err := services.RunPipeline(context.Background(), pipelineCfg, recipeID); err != nil {
+		_ = db.DeleteRecipe(sqlDB, recipeID) // clean up the failed draft
 		return err
 	}
-	if deleteConfirmed {
-		if err := db.DeleteRecipe(sqlDB, recipe.ID); err != nil {
-			return fmt.Errorf("deleting recipe: %w", err)
-		}
-		return runList(nil, nil)
-	}
-	if goAdd2 {
-		return runAdd(nil, nil)
-	}
-	if goHome2 {
-		listQuery = searchQuery
-		return runList(nil, nil)
-	}
 	return nil
+}
+
+// runDetailLoop opens the detail view for a recipe and handles navigation signals.
+func runDetailLoop(recipe *models.Recipe) error {
+	for {
+		goHome, goAdd, goEdit, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
+		if err != nil {
+			return err
+		}
+		if deleteConfirmed {
+			if err := db.DeleteRecipe(sqlDB, recipe.ID); err != nil {
+				return fmt.Errorf("deleting recipe: %w", err)
+			}
+			return runList(nil, nil)
+		}
+		if goEdit {
+			editData, err := loadEditData()
+			if err != nil {
+				return err
+			}
+			toSave, tagNames, _, err := ui.RunEditUI(recipe, editData)
+			if err != nil {
+				return err
+			}
+			if toSave != nil {
+				if err := db.SaveRecipe(sqlDB, toSave, tagNames); err != nil {
+					return fmt.Errorf("saving recipe: %w", err)
+				}
+				recipe, err = db.GetRecipe(sqlDB, recipe.ID)
+				if err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if goAdd {
+			return runAdd(nil, nil)
+		}
+		if goHome {
+			listQuery = searchQuery
+			return runList(nil, nil)
+		}
+		return nil
+	}
 }
 
 func isURL(s string) bool {

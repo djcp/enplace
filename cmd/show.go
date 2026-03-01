@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/djcp/gorecipes/internal/db"
-	"github.com/djcp/gorecipes/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -27,28 +26,5 @@ func runShow(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("recipe not found: %w", err)
 	}
 
-	goHome, goAdd, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
-	if err != nil {
-		return err
-	}
-
-	if deleteConfirmed {
-		if err := db.DeleteRecipe(sqlDB, recipe.ID); err != nil {
-			return fmt.Errorf("deleting recipe: %w", err)
-		}
-		return runList(nil, nil)
-	}
-
-	if goAdd {
-		return runAdd(nil, nil)
-	}
-
-	if goHome {
-		// User chose "home" from the detail view — open the interactive list,
-		// carrying over any search query they typed in the detail view's search bar.
-		listQuery = searchQuery
-		return runList(nil, nil)
-	}
-
-	return nil
+	return runDetailLoop(recipe)
 }
