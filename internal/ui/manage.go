@@ -83,7 +83,7 @@ func (m ManageModel) View() string {
 	}
 	var sb strings.Builder
 
-	sb.WriteString(renderManageBanner(m.width))
+	sb.WriteString(renderManageLandingBanner(m.width))
 	sb.WriteString("\n\n")
 
 	// Label column width.
@@ -123,7 +123,7 @@ func (m ManageModel) View() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderManageFooter(m.width))
+	sb.WriteString(renderManageLandingFooter(m.width))
 
 	return sb.String()
 }
@@ -136,7 +136,7 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(runes))
 }
 
-func renderManageBanner(width int) string {
+func renderManageLandingBanner(width int) string {
 	breadcrumb := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
@@ -161,7 +161,7 @@ func renderManageBanner(width int) string {
 		Render(title)
 }
 
-func renderManageFooter(width int) string {
+func renderManageLandingFooter(width int) string {
 	keys := []string{
 		MutedStyle.Render("↑/↓ navigate"),
 		MutedStyle.Render("enter open"),

@@ -57,8 +57,8 @@ type manageTagsModel struct {
 	mergeCount      int
 
 	// Result.
-	resultMsg  string
-	resultErr  bool
+	resultMsg string
+	resultErr bool
 
 	width  int
 	height int
@@ -322,7 +322,7 @@ func (m manageTagsModel) View() string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString(renderManageTagsBanner(m.width))
+	sb.WriteString(renderManageBanner("tags", m.width))
 	sb.WriteString("\n")
 
 	switch m.phase {
@@ -369,7 +369,7 @@ func (m manageTagsModel) viewContextSelect() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterContext(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ select", "enter open", "esc back"}, m.width))
 	return sb.String()
 }
 
@@ -420,7 +420,7 @@ func (m manageTagsModel) viewBrowse() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterBrowse(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ navigate", "e edit", "m merge", "d delete", "esc back"}, m.width))
 	return sb.String()
 }
 
@@ -446,7 +446,7 @@ func (m manageTagsModel) viewEdit() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterEdit(m.width))
+	sb.WriteString(renderManageFooter([]string{"enter save", "esc cancel"}, m.width))
 	return sb.String()
 }
 
@@ -490,192 +490,49 @@ func (m manageTagsModel) viewMerge() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterMerge(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ select target", "enter confirm", "esc cancel"}, m.width))
 	return sb.String()
 }
 
 func (m manageTagsModel) viewMergeConfirm() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(ColorWarning).Render("Merge tags?"),
-		"",
-		MutedStyle.Render(fmt.Sprintf("Merge '%s' into '%s'?", m.mergeSourceName, m.mergeTargetName)),
-		MutedStyle.Render(fmt.Sprintf("%d recipe(s) will be updated.", m.mergeCount)),
-		"",
-		MutedStyle.Render("The source tag will be deleted."),
+	return buildCenteredBox(
+		"Merge tags?", ColorWarning, ColorWarning,
+		[]string{
+			MutedStyle.Render(fmt.Sprintf("Merge '%s' into '%s'?", m.mergeSourceName, m.mergeTargetName)),
+			MutedStyle.Render(fmt.Sprintf("%d recipe(s) will be updated.", m.mergeCount)),
+			"",
+			MutedStyle.Render("The source tag will be deleted."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y confirm", ColorWarning, m.width),
 	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorWarning).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterConfirm(m.width))
-	return sb.String()
 }
 
 func (m manageTagsModel) viewConfirmDelete() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
 	count := fmt.Sprintf("Used by %d recipe", m.confirmCount)
 	if m.confirmCount != 1 {
 		count += "s"
 	}
 	count += "."
-
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("Delete tag?"),
-		"",
-		lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("'"+m.confirmName+"'"),
-		"",
-		MutedStyle.Render(count),
-		MutedStyle.Render("This cannot be undone."),
+	return buildCenteredBox(
+		"Delete tag?", ColorError, ColorError,
+		[]string{
+			lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("'" + m.confirmName + "'"),
+			"",
+			MutedStyle.Render(count),
+			MutedStyle.Render("This cannot be undone."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y confirm", ColorError, m.width),
 	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorError).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterConfirm(m.width))
-	return sb.String()
 }
 
 func (m manageTagsModel) viewResult() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	style := SuccessStyle
-	if m.resultErr {
-		style = ErrorStyle
-	}
-
-	inner := style.Render(m.resultMsg)
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderTagsFooterResult(m.width))
-	return sb.String()
-}
-
-func renderManageTagsBanner(width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  gorecipes  " +
-				MutedStyle.Render("/") +
-				"  manage  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
-					Render("tags"),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
-}
-
-func renderTagsFooterContext(width int) string {
-	keys := []string{"↑/↓ select", "enter open", "esc back"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderTagsFooterBrowse(width int) string {
-	keys := []string{"↑/↓ navigate", "e edit", "m merge", "d delete", "esc back"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderTagsFooterEdit(width int) string {
-	keys := []string{"enter save", "esc cancel"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderTagsFooterMerge(width int) string {
-	keys := []string{"↑/↓ select target", "enter confirm", "esc cancel"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderTagsFooterConfirm(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("y confirm")
-	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorError).
-		Width(width - 2).
-		Render(line)
-}
-
-func renderTagsFooterResult(width int) string {
-	keys := []string{"any key continue"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
+	return viewManageResult(
+		m.resultMsg, m.resultErr,
+		m.width, m.height,
+		renderManageFooter([]string{"any key continue"}, m.width),
+	)
 }
 
 // RunManageTagsUI runs the tags management TUI.

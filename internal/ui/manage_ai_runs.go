@@ -275,7 +275,7 @@ func (m manageAIRunsModel) View() string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString(renderManageAIRunsBanner(m.width))
+	sb.WriteString(renderManageBanner("AI runs", m.width))
 	sb.WriteString("\n")
 
 	switch m.phase {
@@ -370,7 +370,7 @@ func (m manageAIRunsModel) viewList() string {
 		}
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderAIRunsFooterList(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ navigate", "enter view", "d delete", "p prune (30d)", "esc back"}, m.width))
 	return sb.String()
 }
 
@@ -485,15 +485,11 @@ func (m manageAIRunsModel) viewDetail() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(renderAIRunsFooterDetail(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓/pgup/pgdown scroll", "esc back"}, m.width))
 	return sb.String()
 }
 
 func (m manageAIRunsModel) viewDeleteConfirm() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	// Find the run name for display.
 	runLabel := fmt.Sprintf("run #%d", m.deleteTargetID)
 	for _, r := range m.runs {
 		if r.ID == m.deleteTargetID {
@@ -505,166 +501,35 @@ func (m manageAIRunsModel) viewDeleteConfirm() string {
 			break
 		}
 	}
-
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("Delete AI run?"),
-		"",
-		MutedStyle.Render(truncate(runLabel, m.width-12)),
-		MutedStyle.Render("This cannot be undone."),
+	return buildCenteredBox(
+		"Delete AI run?", ColorError, ColorError,
+		[]string{
+			MutedStyle.Render(truncate(runLabel, m.width-12)),
+			MutedStyle.Render("This cannot be undone."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y delete", ColorError, m.width),
 	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorError).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderAIRunsFooterDeleteConfirm(m.width))
-	return sb.String()
 }
 
 func (m manageAIRunsModel) viewPruneConfirm() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(ColorWarning).Render("Prune old runs?"),
-		"",
-		MutedStyle.Render("Delete AI runs older than 30 days?"),
-		MutedStyle.Render("This cannot be undone."),
+	return buildCenteredBox(
+		"Prune old runs?", ColorWarning, ColorWarning,
+		[]string{
+			MutedStyle.Render("Delete AI runs older than 30 days?"),
+			MutedStyle.Render("This cannot be undone."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y prune", ColorWarning, m.width),
 	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorWarning).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderAIRunsFooterConfirm(m.width))
-	return sb.String()
 }
 
 func (m manageAIRunsModel) viewPruneResult() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	style := SuccessStyle
-	if m.resultErr {
-		style = ErrorStyle
-	}
-
-	inner := style.Render(m.resultMsg)
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderAIRunsFooterResult(m.width))
-	return sb.String()
-}
-
-func renderManageAIRunsBanner(width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  gorecipes  " +
-				MutedStyle.Render("/") +
-				"  manage  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
-					Render("AI runs"),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
-}
-
-func renderAIRunsFooterList(width int) string {
-	keys := []string{"↑/↓ navigate", "enter view", "d delete", "p prune (30d)", "esc back"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderAIRunsFooterDetail(width int) string {
-	keys := []string{"↑/↓/pgup/pgdown scroll", "esc back"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderAIRunsFooterDeleteConfirm(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("y delete")
-	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorError).
-		Width(width - 2).
-		Render(line)
-}
-
-func renderAIRunsFooterConfirm(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorWarning).Render("y prune")
-	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorWarning).
-		Width(width - 2).
-		Render(line)
-}
-
-func renderAIRunsFooterResult(width int) string {
-	keys := []string{"any key continue"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
+	return viewManageResult(
+		m.resultMsg, m.resultErr,
+		m.width, m.height,
+		renderManageFooter([]string{"any key continue"}, m.width),
+	)
 }
 
 // RunManageAIRunsUI runs the AI runs management TUI.

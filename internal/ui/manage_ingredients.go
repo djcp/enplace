@@ -41,11 +41,11 @@ type manageIngredientsModel struct {
 	editInput textinput.Model
 
 	// Merge.
-	mergeList        []db.IngredientWithCount
-	mergeCursor      int
-	mergeSourceName  string
-	mergeTargetName  string
-	mergeTargetID    int64
+	mergeList       []db.IngredientWithCount
+	mergeCursor     int
+	mergeSourceName string
+	mergeTargetName string
+	mergeTargetID   int64
 
 	// Result.
 	resultMsg string
@@ -314,7 +314,7 @@ func (m manageIngredientsModel) View() string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString(renderManageIngBanner(m.width))
+	sb.WriteString(renderManageBanner("ingredients", m.width))
 	sb.WriteString("\n")
 
 	switch m.phase {
@@ -380,7 +380,7 @@ func (m manageIngredientsModel) viewBrowse() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderIngFooterBrowse(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ navigate", "/ search", "e edit", "m merge", "esc back"}, m.width))
 	return sb.String()
 }
 
@@ -403,7 +403,7 @@ func (m manageIngredientsModel) viewEdit() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderIngFooterEdit(m.width))
+	sb.WriteString(renderManageFooter([]string{"enter save", "esc cancel"}, m.width))
 	return sb.String()
 }
 
@@ -444,143 +444,28 @@ func (m manageIngredientsModel) viewMerge() string {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
-	sb.WriteString(renderIngFooterMerge(m.width))
+	sb.WriteString(renderManageFooter([]string{"↑/↓ select target", "enter confirm", "esc cancel"}, m.width))
 	return sb.String()
 }
 
 func (m manageIngredientsModel) viewMergeConfirm() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Foreground(ColorWarning).Render("Merge ingredients?"),
-		"",
-		MutedStyle.Render(fmt.Sprintf("Merge '%s' into '%s'?", m.mergeSourceName, m.mergeTargetName)),
-		MutedStyle.Render("The source ingredient will be deleted."),
+	return buildCenteredBox(
+		"Merge ingredients?", ColorWarning, ColorWarning,
+		[]string{
+			MutedStyle.Render(fmt.Sprintf("Merge '%s' into '%s'?", m.mergeSourceName, m.mergeTargetName)),
+			MutedStyle.Render("The source ingredient will be deleted."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y confirm", ColorWarning, m.width),
 	)
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorWarning).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderIngFooterConfirm(m.width))
-	return sb.String()
 }
 
 func (m manageIngredientsModel) viewResult() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n")
-
-	style := SuccessStyle
-	if m.resultErr {
-		style = ErrorStyle
-	}
-
-	inner := style.Render(m.resultMsg)
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Padding(1, 3).
-		Render(inner)
-
-	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
-	sb.WriteString("\n")
-
-	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
-		sb.WriteString(strings.Repeat("\n", fill))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(renderIngFooterResult(m.width))
-	return sb.String()
-}
-
-func renderManageIngBanner(width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  gorecipes  " +
-				MutedStyle.Render("/") +
-				"  manage  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
-					Render("ingredients"),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
-}
-
-func renderIngFooterBrowse(width int) string {
-	keys := []string{"↑/↓ navigate", "/ search", "e edit", "m merge", "esc back"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderIngFooterEdit(width int) string {
-	keys := []string{"enter save", "esc cancel"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderIngFooterMerge(width int) string {
-	keys := []string{"↑/↓ select target", "enter confirm", "esc cancel"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
-}
-
-func renderIngFooterConfirm(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorWarning).Render("y confirm")
-	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorWarning).
-		Width(width - 2).
-		Render(line)
-}
-
-func renderIngFooterResult(width int) string {
-	keys := []string{"any key continue"}
-	return lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(footerLine(keys, width-2))
+	return viewManageResult(
+		m.resultMsg, m.resultErr,
+		m.width, m.height,
+		renderManageFooter([]string{"any key continue"}, m.width),
+	)
 }
 
 // RunManageIngredientsUI runs the ingredients management TUI.

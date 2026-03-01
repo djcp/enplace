@@ -143,3 +143,101 @@ func footerLine(keys []string, innerWidth int) string {
 	}
 	return left + strings.Repeat(" ", gap) + right
 }
+
+// renderManageBanner renders the breadcrumb banner shared by all manage sub-screens.
+// pageName is the current section, e.g. "tags", "ingredients", "serving units".
+func renderManageBanner(pageName string, width int) string {
+	breadcrumb := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPrimary).
+		Render(
+			"🍳  gorecipes  " +
+				MutedStyle.Render("/") +
+				"  manage  " +
+				MutedStyle.Render("/") +
+				"  " +
+				lipgloss.NewStyle().
+					Bold(false).
+					Foreground(lipgloss.Color("#5C4A3C")).
+					Render(pageName),
+		)
+	title := lipgloss.NewStyle().Padding(1, 2).Render(breadcrumb)
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(ColorBorder).
+		Width(width - 2).
+		Render(title)
+}
+
+// renderManageFooter renders the standard manage-screen key-hint footer.
+func renderManageFooter(keys []string, width int) string {
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(ColorBorder).
+		Width(width - 2).
+		Render(footerLine(keys, width-2))
+}
+
+// renderManageConfirmFooter renders a yes/no footer: a bold coloured "y <action>"
+// key and a muted "n / esc cancel" hint. accent sets both the key and border colour.
+func renderManageConfirmFooter(yLabel string, accent lipgloss.Color, width int) string {
+	yKey := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(yLabel)
+	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(accent).
+		Width(width - 2).
+		Render(line)
+}
+
+// viewManageResult renders the result phase shared by all manage sub-screens:
+// a centred success or error box with vertical fill and the given footer.
+func viewManageResult(msg string, isErr bool, width, height int, footerStr string) string {
+	var sb strings.Builder
+	sb.WriteString("\n\n")
+	style := SuccessStyle
+	if isErr {
+		style = ErrorStyle
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Padding(1, 3).
+		Render(style.Render(msg))
+	sb.WriteString(lipgloss.PlaceHorizontal(width, lipgloss.Center, box))
+	sb.WriteString("\n")
+	used := strings.Count(sb.String(), "\n")
+	if fill := height - used - 3; fill > 0 {
+		sb.WriteString(strings.Repeat("\n", fill))
+	}
+	sb.WriteString("\n")
+	sb.WriteString(footerStr)
+	return sb.String()
+}
+
+// buildCenteredBox renders a centred rounded-border dialog with a bold title,
+// body lines, vertical fill, and footerStr below. titleColor tints the title;
+// borderColor sets the box border.
+func buildCenteredBox(title string, titleColor, borderColor lipgloss.Color, bodyLines []string, width, height int, footerStr string) string {
+	var sb strings.Builder
+	sb.WriteString("\n\n")
+	parts := make([]string, 0, len(bodyLines)+2)
+	parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(title), "")
+	parts = append(parts, bodyLines...)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(1, 3).
+		Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	sb.WriteString(lipgloss.PlaceHorizontal(width, lipgloss.Center, box))
+	sb.WriteString("\n")
+	used := strings.Count(sb.String(), "\n")
+	if fill := height - used - 3; fill > 0 {
+		sb.WriteString(strings.Repeat("\n", fill))
+	}
+	sb.WriteString("\n")
+	sb.WriteString(footerStr)
+	return sb.String()
+}
