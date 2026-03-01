@@ -28,6 +28,10 @@ type ListModel struct {
 	searchConfirmed bool
 	editID          int64
 
+	// queryBeforeTyping preserves the active filter so Esc can restore it
+	// when the user entered typing mode from a results view.
+	queryBeforeTyping string
+
 	// Delete confirmation state.
 	confirmingDelete bool
 	deleteTargetID   int64
@@ -94,9 +98,8 @@ func (m ListModel) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.typing = false
-		m.query = ""
-		m.cursor = 0
-		m.offset = 0
+		m.query = m.queryBeforeTyping
+		m.queryBeforeTyping = ""
 	case tea.KeyEnter:
 		m.typing = false
 		m.searchConfirmed = true
@@ -160,6 +163,7 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteTargetName = m.recipes[m.cursor].Name
 		}
 	case "/":
+		m.queryBeforeTyping = m.query
 		m.typing = true
 	case "up", "k":
 		if m.cursor > 0 {
@@ -167,6 +171,10 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.cursor < m.offset {
 				m.offset = m.cursor
 			}
+		} else {
+			// Already at the top row — move focus up into the search bar.
+			m.queryBeforeTyping = m.query
+			m.typing = true
 		}
 	case "down", "j":
 		if m.cursor < len(m.recipes)-1 {
@@ -192,10 +200,13 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m ListModel) visibleRows() int {
 	// Banner (4) + col header (1) + blank-before-footer (1) + footer (2) = 8 fixed overhead.
 	// Selected row expands to 2 lines, so we reserve 1 extra = 9 total overhead.
-	// When typing the bordered search bar adds 4 more lines (3-line box + 1 blank).
+	// Inactive search bar (query shown, not typing) adds 1 line.
+	// Active search bar (bordered box) adds 4 lines and replaces the inactive bar.
 	v := m.height - 9
 	if m.typing {
 		v -= 4
+	} else if m.query != "" {
+		v -= 1
 	}
 	if v < 1 {
 		v = 1
@@ -236,10 +247,14 @@ func (m ListModel) View() string {
 		return sb.String()
 	}
 
-	// Search bar — only visible while the user is actively typing.
-	if m.typing {
+	// Search bar — shown when typing or when an active query is filtering results.
+	if m.typing || m.query != "" {
 		sb.WriteString(renderSearchBar(m.query, m.typing, m.width))
-		sb.WriteString("\n\n")
+		if m.typing {
+			sb.WriteString("\n\n")
+		} else {
+			sb.WriteString("\n")
+		}
 	}
 
 	// Column headers.
