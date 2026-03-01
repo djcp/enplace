@@ -190,9 +190,10 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 
 func (m ListModel) visibleRows() int {
-	// Banner (4) + blank-before-footer (1) + footer (2) = 7 fixed overhead.
+	// Banner (4) + col header (1) + blank-before-footer (1) + footer (2) = 8 fixed overhead.
+	// Selected row expands to 2 lines, so we reserve 1 extra = 9 total overhead.
 	// When typing the bordered search bar adds 4 more lines (3-line box + 1 blank).
-	v := m.height - 7
+	v := m.height - 9
 	if m.typing {
 		v -= 4
 	}
@@ -241,12 +242,16 @@ func (m ListModel) View() string {
 		sb.WriteString("\n\n")
 	}
 
+	// Column headers.
+	sb.WriteString(renderColumnHeaders(m.width))
+	sb.WriteString("\n")
+
 	visible := m.visibleRows()
 	if len(m.recipes) == 0 {
 		// A filter/search was active but returned nothing.
 		sb.WriteString(MutedStyle.Render(fmt.Sprintf(`  No recipes match "%s".`, m.query)))
 		sb.WriteString("\n")
-		for i := 1; i < visible; i++ {
+		for i := 1; i <= visible; i++ {
 			sb.WriteString("\n")
 		}
 	} else {
@@ -331,24 +336,60 @@ func renderSearchBar(query string, typing bool, width int) string {
 	return bar
 }
 
-func renderRecipeRow(r models.Recipe, selected bool, width int) string {
-	nameWidth := width - 40
-	if nameWidth < 20 {
-		nameWidth = 20
+func listNameWidth(width int) int {
+	nw := width - 40
+	if nw < 20 {
+		nw = 20
 	}
+	return nw
+}
 
-	name := truncate(r.Name, nameWidth)
+func totalTimeStr(prepMins, cookMins *int) string {
+	total := 0
+	if prepMins != nil {
+		total += *prepMins
+	}
+	if cookMins != nil {
+		total += *cookMins
+	}
+	if total == 0 {
+		return "—"
+	}
+	h := total / 60
+	m := total % 60
+	if h == 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+func renderColumnHeaders(width int) string {
+	nw := listNameWidth(width)
+	header := fmt.Sprintf("  %-*s  %-14s  %-8s  %s", nw, "Name", "Courses", "Time", "Status")
+	return MutedStyle.Render(header)
+}
+
+func renderRecipeRow(r models.Recipe, selected bool, width int) string {
+	nw := listNameWidth(width)
+
+	name := truncate(r.Name, nw)
 	courses := truncate(strings.Join(r.TagsByContext(models.TagContextCourses), ", "), 14)
-	methods := truncate(strings.Join(r.TagsByContext(models.TagContextCookingMethods), ", "), 12)
+	timeStr := totalTimeStr(r.PreparationTime, r.CookingTime)
 	status := StatusBadge(r.Status)
 
-	dateStr := r.CreatedAt.Format("Jan 2")
-
-	row := fmt.Sprintf("  %-*s  %-14s  %-12s  %-6s  %s",
-		nameWidth, name, courses, methods, dateStr, status)
+	row := fmt.Sprintf("  %-*s  %-14s  %-8s  %s", nw, name, courses, timeStr, status)
 
 	if selected {
-		return HighlightStyle.Width(width).Render(row)
+		desc := truncate(r.Description, width-4)
+		if desc == "" {
+			desc = MutedStyle.Render("  no description")
+		} else {
+			desc = MutedStyle.Render("  " + desc)
+		}
+		return HighlightStyle.Width(width).Render(row + "\n" + desc)
 	}
 	return row
 }

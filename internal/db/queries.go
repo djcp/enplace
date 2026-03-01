@@ -102,8 +102,6 @@ func ListRecipes(db *sqlx.DB, f RecipeFilter) ([]models.Recipe, error) {
 	if f.StatusFilter != "" {
 		conditions = append(conditions, "r.status = ?")
 		args = append(args, f.StatusFilter)
-	} else {
-		conditions = append(conditions, "r.status = 'published'")
 	}
 
 	if f.Query != "" {

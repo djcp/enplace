@@ -287,22 +287,19 @@ func TestDeleteRecipe_CascadesIngredients(t *testing.T) {
 	}
 }
 
-func TestListRecipes_PublishedOnly(t *testing.T) {
+func TestListRecipes_AllStatuses(t *testing.T) {
 	d := openTestDB(t)
 
 	_, _ = db.CreateRecipe(d, &models.Recipe{Name: "Draft", Status: models.StatusDraft})
-	pubID, _ := db.CreateRecipe(d, &models.Recipe{Name: "Published", Status: models.StatusPublished})
+	_, _ = db.CreateRecipe(d, &models.Recipe{Name: "Published", Status: models.StatusPublished})
 
 	recipes, err := db.ListRecipes(d, db.RecipeFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(recipes) != 1 {
-		t.Errorf("expected 1 published recipe, got %d", len(recipes))
-	}
-	if recipes[0].ID != pubID {
-		t.Errorf("expected recipe ID %d, got %d", pubID, recipes[0].ID)
+	if len(recipes) != 2 {
+		t.Errorf("expected 2 recipes (all statuses), got %d", len(recipes))
 	}
 }
 
