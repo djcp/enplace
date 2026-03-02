@@ -109,6 +109,8 @@ func NewAddModel(pasteMode bool, initialURL string, fn PipelineLaunchFn) AddMode
 		ta.Placeholder = "Paste the full recipe text here..."
 		ta.ShowLineNumbers = false
 		ta.Focus()
+		ta.SetWidth(m.textareaWidth())
+		ta.SetHeight(m.textareaHeight())
 		m.textarea = ta
 		m.phase = addPhaseInput
 	} else {
@@ -271,6 +273,8 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				ta.Placeholder = "Paste the full recipe text here..."
 				ta.ShowLineNumbers = false
 				ta.Focus()
+				ta.SetWidth(m.textareaWidth())
+				ta.SetHeight(m.textareaHeight())
 				m.textarea = ta
 				m.pasteMode = true
 				m.phase = addPhaseInput
@@ -342,7 +346,7 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AddModel) textareaWidth() int {
-	w := m.width - 8
+	w := m.width * 60 / 100
 	if w < 20 {
 		return 20
 	}
@@ -350,8 +354,7 @@ func (m AddModel) textareaWidth() int {
 }
 
 func (m AddModel) textareaHeight() int {
-	// Banner(4) + "\n"(1) + label(1) + "\n"(1) + "\n"(1) + footer(2) + slack(2) = 12
-	h := m.height - 12
+	h := m.height * 50 / 100
 	if h < 3 {
 		return 3
 	}
