@@ -1,5 +1,14 @@
 # gorecipes — development notes
 
+## Before committing or opening a PR
+
+Always run these two commands and fix any issues before committing or opening a PR:
+
+```sh
+go test ./...        # all tests must pass
+gofmt -l .           # any listed files need gofmt -w <file>
+```
+
 ## UI / lipgloss rendering
 
 ### Centering multi-line blocks (dialogs, forms, overlays)
