@@ -43,9 +43,9 @@ func TestRunPipeline_URL_Success(t *testing.T) {
 
 	// Create draft recipe with source URL.
 	recipeID, _ := db.CreateRecipe(d, &models.Recipe{
-		Name:      "(importing...)",
-		Status:    models.StatusDraft,
-		SourceURL: "https://example.com/recipe",
+		Name:       "(importing...)",
+		Status:     models.StatusDraft,
+		SourceURL:  "https://example.com/recipe",
 		SourceText: "",
 	})
 

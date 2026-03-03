@@ -11,7 +11,7 @@ import (
 type ManageSection int
 
 const (
-	ManageSectionBack        ManageSection = iota
+	ManageSectionBack ManageSection = iota
 	ManageSectionConfig
 	ManageSectionTags
 	ManageSectionIngredients

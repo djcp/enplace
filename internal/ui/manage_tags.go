@@ -15,13 +15,13 @@ import (
 type manageTagsPhase int
 
 const (
-	manageTagsPhaseContext  manageTagsPhase = iota // pick context
-	manageTagsPhaseBrowse                          // browse tags in context
-	manageTagsPhaseEdit                            // rename overlay
-	manageTagsPhaseMerge                           // pick merge target
-	manageTagsPhaseMergeConfirm                    // confirm merge
-	manageTagsPhaseConfirm                         // confirm delete
-	manageTagsPhaseResult                          // show result, any-key continues
+	manageTagsPhaseContext      manageTagsPhase = iota // pick context
+	manageTagsPhaseBrowse                              // browse tags in context
+	manageTagsPhaseEdit                                // rename overlay
+	manageTagsPhaseMerge                               // pick merge target
+	manageTagsPhaseMergeConfirm                        // confirm merge
+	manageTagsPhaseConfirm                             // confirm delete
+	manageTagsPhaseResult                              // show result, any-key continues
 )
 
 // manageTagsModel is the TUI model for the tags management screen.

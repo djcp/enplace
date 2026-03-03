@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/djcp/gorecipes/internal/config"
 	"github.com/djcp/gorecipes/internal/db"
 	"github.com/djcp/gorecipes/internal/models"
+	"github.com/djcp/gorecipes/internal/services"
 	"github.com/djcp/gorecipes/internal/ui"
 )
 
@@ -49,8 +51,15 @@ func runManageUI() error {
 				return err
 			}
 		case ui.ManageSectionAIRuns:
-			if err := ui.RunManageAIRunsUI(sqlDB); err != nil {
-				return err
+			for {
+				retryRecipeID, err := ui.RunManageAIRunsUI(sqlDB)
+				if err != nil {
+					return err
+				}
+				if retryRecipeID == 0 {
+					break
+				}
+				_ = runRetryPipeline(retryRecipeID)
 			}
 		default: // ManageSectionBack
 			return nil
@@ -88,4 +97,25 @@ func loadSearchData() (ui.SearchData, error) {
 		return ui.SearchData{}, err
 	}
 	return ui.SearchData{Courses: courses, Influences: influences}, nil
+}
+
+// runRetryPipeline re-runs AI extraction for an existing recipe via the progress TUI.
+// Any pipeline error is shown in the TUI; the returned error covers only setup failures.
+func runRetryPipeline(recipeID int64) error {
+	recipe, err := db.GetRecipe(sqlDB, recipeID)
+	if err != nil {
+		return err
+	}
+	pasteMode := recipe.SourceURL == ""
+	launchFn := ui.PipelineLaunchFn(func(ctx context.Context, _, _ string, onStep func(int, string)) (int64, error) {
+		pipelineCfg := services.PipelineConfig{
+			DB:     sqlDB,
+			Client: services.NewAnthropicClient(cfg.AnthropicAPIKey),
+			Model:  cfg.AnthropicModel,
+			OnStep: onStep,
+		}
+		_, err := services.RunPipeline(ctx, pipelineCfg, recipeID)
+		return recipeID, err
+	})
+	return ui.RunRetryUI(pasteMode, launchFn)
 }

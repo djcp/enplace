@@ -4,12 +4,12 @@ import "time"
 
 // Status values mirror the Rails workflow.
 const (
-	StatusDraft             = "draft"
-	StatusProcessing        = "processing"
-	StatusProcessingFailed  = "processing_failed"
-	StatusReview            = "review"
-	StatusPublished         = "published"
-	StatusRejected          = "rejected"
+	StatusDraft            = "draft"
+	StatusProcessing       = "processing"
+	StatusProcessingFailed = "processing_failed"
+	StatusReview           = "review"
+	StatusPublished        = "published"
+	StatusRejected         = "rejected"
 )
 
 // TagContext values mirror Rails acts_as_taggable_on contexts.
@@ -30,19 +30,19 @@ var AllTagContexts = []string{
 
 // Recipe is the core domain model.
 type Recipe struct {
-	ID              int64      `db:"id"`
-	Name            string     `db:"name"`
-	Description     string     `db:"description"`
-	Directions      string     `db:"directions"`
-	PreparationTime *int       `db:"preparation_time"`
-	CookingTime     *int       `db:"cooking_time"`
-	Servings        *int       `db:"servings"`
-	ServingUnits    string     `db:"serving_units"`
-	SourceURL       string     `db:"source_url"`
-	SourceText      string     `db:"source_text"`
-	Status          string     `db:"status"`
-	CreatedAt       time.Time  `db:"created_at"`
-	UpdatedAt       time.Time  `db:"updated_at"`
+	ID              int64     `db:"id"`
+	Name            string    `db:"name"`
+	Description     string    `db:"description"`
+	Directions      string    `db:"directions"`
+	PreparationTime *int      `db:"preparation_time"`
+	CookingTime     *int      `db:"cooking_time"`
+	Servings        *int      `db:"servings"`
+	ServingUnits    string    `db:"serving_units"`
+	SourceURL       string    `db:"source_url"`
+	SourceText      string    `db:"source_text"`
+	Status          string    `db:"status"`
+	CreatedAt       time.Time `db:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at"`
 
 	// Populated on load when needed.
 	Ingredients []RecipeIngredient `db:"-"`

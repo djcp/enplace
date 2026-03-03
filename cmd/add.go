@@ -160,7 +160,7 @@ func runAddQuiet(sourceURL string) error {
 // runDetailLoop opens the detail view for a recipe and handles navigation signals.
 func runDetailLoop(recipe *models.Recipe) error {
 	for {
-		goHome, goAdd, goEdit, goPrint, goManage, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
+		goHome, goAdd, goEdit, goPrint, goManage, goRetry, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
 		if err != nil {
 			return err
 		}
@@ -169,6 +169,14 @@ func runDetailLoop(recipe *models.Recipe) error {
 				return fmt.Errorf("deleting recipe: %w", err)
 			}
 			return runList(nil, nil)
+		}
+		if goRetry {
+			_ = runRetryPipeline(recipe.ID)
+			recipe, err = db.GetRecipe(sqlDB, recipe.ID)
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		if goManage {
 			if err := runManageUI(); err != nil {

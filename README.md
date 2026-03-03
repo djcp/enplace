@@ -93,6 +93,7 @@ Falls back to a plain table when stdout is not a TTY or `--query` is set.
 | `a` | Add a new recipe |
 | `d` | Delete (with confirmation) |
 | `m` | Open manage |
+| `r` | Retry AI extraction (only shown when status is `processing_failed`) |
 | `h` | Go back to the list |
 | `q` / `esc` | Quit |
 
@@ -137,7 +138,7 @@ Opened with `m` from the list or detail view. A landing screen with five section
 
 **Serving Units** — same rename/merge flow; units are inline strings in `recipe_ingredients.unit`, so merge is a bulk `UPDATE` with no orphan row cleanup needed.
 
-**AI Classifier Runs** — scrollable list showing date, service, model, success/failure, duration, and recipe name. `enter` opens a scrollable detail view with the full system prompt, user prompt, and raw AI response (with humanized timestamps and timezone). `d` deletes an individual run with a brief inline confirmation overlay; the list shows a notice on return. `p` prompts to prune all runs older than 30 days and displays the count deleted.
+**AI Classifier Runs** — scrollable list showing date, service, model, success/failure, duration, and recipe name. `enter` opens a scrollable detail view with the full system prompt, user prompt, and raw AI response (with humanized timestamps and timezone). `r` in the detail view triggers a retry of AI extraction for the associated recipe — available for any run tied to an existing recipe (not limited to failed runs). `d` deletes an individual run with a brief inline confirmation overlay; the list shows a notice on return. `p` prompts to prune all runs older than 30 days and displays the count deleted.
 
 ### Edit form
 

@@ -11,12 +11,12 @@ import (
 
 // RecipeFilter holds search/filter parameters for listing recipes.
 type RecipeFilter struct {
-	Query              string // name or ingredient substring
-	Courses            []string
-	CookingMethods     []string
-	CulturalInfluences []string
+	Query               string // name or ingredient substring
+	Courses             []string
+	CookingMethods      []string
+	CulturalInfluences  []string
 	DietaryRestrictions []string
-	StatusFilter       string // empty = published only
+	StatusFilter        string // empty = published only
 }
 
 // --- Recipes ---

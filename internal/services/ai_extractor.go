@@ -76,18 +76,18 @@ type ExtractedIngredient struct {
 
 // ExtractedRecipe is the AI-returned recipe structure.
 type ExtractedRecipe struct {
-	Name               string                `json:"name"`
-	Description        string                `json:"description"`
-	Directions         string                `json:"directions"`
-	PreparationTime    *int                  `json:"preparation_time"`
-	CookingTime        *int                  `json:"cooking_time"`
-	Servings           *int                  `json:"servings"`
-	ServingUnits       *string               `json:"serving_units"`
-	Ingredients        []ExtractedIngredient `json:"ingredients"`
-	CookingMethods     []string              `json:"cooking_methods"`
-	CulturalInfluences []string              `json:"cultural_influences"`
-	Courses            []string              `json:"courses"`
-	DietaryRestrictions []string             `json:"dietary_restrictions"`
+	Name                string                `json:"name"`
+	Description         string                `json:"description"`
+	Directions          string                `json:"directions"`
+	PreparationTime     *int                  `json:"preparation_time"`
+	CookingTime         *int                  `json:"cooking_time"`
+	Servings            *int                  `json:"servings"`
+	ServingUnits        *string               `json:"serving_units"`
+	Ingredients         []ExtractedIngredient `json:"ingredients"`
+	CookingMethods      []string              `json:"cooking_methods"`
+	CulturalInfluences  []string              `json:"cultural_influences"`
+	Courses             []string              `json:"courses"`
+	DietaryRestrictions []string              `json:"dietary_restrictions"`
 }
 
 // AIClient is the interface for calling the Anthropic API.

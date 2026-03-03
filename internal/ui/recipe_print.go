@@ -15,7 +15,7 @@ import (
 type printPhase int
 
 const (
-	printPhasePreview      printPhase = iota
+	printPhasePreview printPhase = iota
 	printPhaseFormatSelect
 	printPhaseResult
 )
@@ -40,7 +40,7 @@ type PrintModel struct {
 	scroll    int
 	width     int
 	height    int
-	cursor    int    // format selection cursor
+	cursor    int // format selection cursor
 	resultMsg string
 	isError   bool
 	goBack    bool

@@ -51,12 +51,13 @@ type DetailModel struct {
 	focus detailFocus
 	query string // search bar text (carried back to the list on "home")
 
-	goHome          bool
-	goAdd           bool
-	goEdit          bool
-	goPrint         bool
-	goManage        bool
-	returnQuery     string
+	goHome           bool
+	goAdd            bool
+	goEdit           bool
+	goPrint          bool
+	goManage         bool
+	goRetry          bool
+	returnQuery      string
 	confirmingDelete bool
 	deleteConfirmed  bool
 }
@@ -85,6 +86,9 @@ func (m DetailModel) GoPrint() bool { return m.goPrint }
 
 // GoManage returns true when the user pressed "m" to open the manage screen.
 func (m DetailModel) GoManage() bool { return m.goManage }
+
+// GoRetry returns true when the user pressed "r" to retry a failed extraction.
+func (m DetailModel) GoRetry() bool { return m.goRetry }
 
 // DeleteConfirmed returns true when the user confirmed deletion of the recipe.
 func (m DetailModel) DeleteConfirmed() bool { return m.deleteConfirmed }
@@ -229,6 +233,12 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.goManage = true
 		return m, tea.Quit
 
+	case "r":
+		if m.recipe.IsFailed() {
+			m.goRetry = true
+			return m, tea.Quit
+		}
+
 	case "d":
 		m.confirmingDelete = true
 
@@ -338,7 +348,7 @@ func (m DetailModel) View() string {
 
 	// Footer.
 	sb.WriteString("\n")
-	sb.WriteString(renderDetailFooter(m.focus, m.width))
+	sb.WriteString(renderDetailFooter(m.focus, m.recipe.IsFailed(), m.width))
 
 	return sb.String()
 }
@@ -532,7 +542,7 @@ func renderDetailBanner(name string, width int) string {
 
 // renderDetailFooter renders the footer; "h home" and the border are highlighted
 // when footer has focus, signalling the user can press enter or h.
-func renderDetailFooter(focus detailFocus, width int) string {
+func renderDetailFooter(focus detailFocus, showRetry bool, width int) string {
 	homeStyle := MutedStyle
 	borderColor := ColorBorder
 
@@ -552,6 +562,9 @@ func renderDetailFooter(focus detailFocus, width int) string {
 		MutedStyle.Render("⚙ m manage"),
 		"🚪 q quit",
 	}
+	if showRetry {
+		keys = append(keys, MutedStyle.Render("🔄 r retry"))
+	}
 
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
@@ -570,13 +583,13 @@ func min(a, b int) int {
 
 // RunDetailUI runs the interactive recipe detail TUI.
 // Returns navigation signals, whether the user confirmed deletion, the search query, and any error.
-func RunDetailUI(recipe *models.Recipe) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goManage bool, deleteConfirmed bool, searchQuery string, err error) {
+func RunDetailUI(recipe *models.Recipe) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goManage bool, goRetry bool, deleteConfirmed bool, searchQuery string, err error) {
 	m := NewDetailModel(recipe)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return false, false, false, false, false, false, "", runErr
+		return false, false, false, false, false, false, false, "", runErr
 	}
 	fm := final.(DetailModel)
-	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoManage(), fm.DeleteConfirmed(), fm.ReturnQuery(), nil
+	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnQuery(), nil
 }

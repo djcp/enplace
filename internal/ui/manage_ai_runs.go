@@ -18,6 +18,7 @@ const (
 	manageAIRunsPhaseList manageAIRunsPhase = iota
 	manageAIRunsPhaseDetail
 	manageAIRunsPhaseDeleteConfirm
+	manageAIRunsPhaseRetryConfirm
 	manageAIRunsPhasePruneConfirm
 	manageAIRunsPhasePruneResult
 )
@@ -36,12 +37,17 @@ type manageAIRunsModel struct {
 	offset int
 
 	// Detail view.
-	fullRun    *models.AIClassifierRun
-	detailLines []string
+	fullRun      *models.AIClassifierRun
+	detailLines  []string
 	detailScroll int
 
 	// Delete single run.
 	deleteTargetID int64
+
+	// Retry failed run.
+	retryTargetRecipeID int64
+	retryTargetName     string
+	retryRecipeID       int64 // set on confirm; returned to caller via RunManageAIRunsUI
 
 	// listNotice is shown inline on the list view after a delete (cleared on next delete/prune).
 	listNotice    string
@@ -93,6 +99,8 @@ func (m manageAIRunsModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(msg)
 	case manageAIRunsPhaseDeleteConfirm:
 		return m.handleDeleteConfirmKey(msg)
+	case manageAIRunsPhaseRetryConfirm:
+		return m.handleRetryConfirmKey(msg)
 	case manageAIRunsPhasePruneConfirm:
 		return m.handlePruneConfirmKey(msg)
 	case manageAIRunsPhasePruneResult:
@@ -245,6 +253,28 @@ func (m manageAIRunsModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if m.detailScroll > m.maxDetailScroll() {
 			m.detailScroll = m.maxDetailScroll()
 		}
+	case "r":
+		if m.fullRun != nil && m.fullRun.RecipeID != nil {
+			m.retryTargetRecipeID = *m.fullRun.RecipeID
+			if len(m.runs) > 0 && m.cursor < len(m.runs) {
+				m.retryTargetName = m.runs[m.cursor].RecipeName
+			}
+			m.phase = manageAIRunsPhaseRetryConfirm
+		}
+	}
+	return m, nil
+}
+
+func (m manageAIRunsModel) handleRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc", "n":
+		m.phase = manageAIRunsPhaseDetail
+		return m, nil
+	case "y", "enter":
+		m.retryRecipeID = m.retryTargetRecipeID
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -285,6 +315,8 @@ func (m manageAIRunsModel) View() string {
 		sb.WriteString(m.viewDetail())
 	case manageAIRunsPhaseDeleteConfirm:
 		sb.WriteString(m.viewDeleteConfirm())
+	case manageAIRunsPhaseRetryConfirm:
+		sb.WriteString(m.viewRetryConfirm())
 	case manageAIRunsPhasePruneConfirm:
 		sb.WriteString(m.viewPruneConfirm())
 	case manageAIRunsPhasePruneResult:
@@ -485,7 +517,11 @@ func (m manageAIRunsModel) viewDetail() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(renderManageFooter([]string{"↑/↓/pgup/pgdown scroll", "esc back"}, m.width))
+	footerHints := []string{"↑/↓/pgup/pgdown scroll", "esc back"}
+	if m.fullRun != nil && m.fullRun.RecipeID != nil {
+		footerHints = append(footerHints, "r retry")
+	}
+	sb.WriteString(renderManageFooter(footerHints, m.width))
 	return sb.String()
 }
 
@@ -512,6 +548,22 @@ func (m manageAIRunsModel) viewDeleteConfirm() string {
 	)
 }
 
+func (m manageAIRunsModel) viewRetryConfirm() string {
+	name := m.retryTargetName
+	if name == "" {
+		name = "(unknown recipe)"
+	}
+	return buildCenteredBox(
+		"Retry extraction?", ColorWarning, ColorWarning,
+		[]string{
+			MutedStyle.Render(truncate(name, m.width-12)),
+			MutedStyle.Render("Re-run AI extraction for this recipe."),
+		},
+		m.width, m.height,
+		renderManageConfirmFooter("y retry", ColorWarning, m.width),
+	)
+}
+
 func (m manageAIRunsModel) viewPruneConfirm() string {
 	return buildCenteredBox(
 		"Prune old runs?", ColorWarning, ColorWarning,
@@ -533,12 +585,17 @@ func (m manageAIRunsModel) viewPruneResult() string {
 }
 
 // RunManageAIRunsUI runs the AI runs management TUI.
-func RunManageAIRunsUI(sqlDB *sqlx.DB) error {
+// Returns retryRecipeID > 0 if the user confirmed a retry, 0 for normal exit.
+func RunManageAIRunsUI(sqlDB *sqlx.DB) (retryRecipeID int64, err error) {
 	m := newManageAIRunsModel(sqlDB)
 	if err := m.loadRuns(); err != nil {
-		return err
+		return 0, err
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	final, err := p.Run()
+	if err != nil {
+		return 0, err
+	}
+	fm := final.(manageAIRunsModel)
+	return fm.retryRecipeID, nil
 }

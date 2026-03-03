@@ -31,10 +31,10 @@ type ProgressFunc func(step int, label string)
 
 // PipelineConfig holds dependencies for the extraction pipeline.
 type PipelineConfig struct {
-	DB       *sqlx.DB
-	Client   AIClient
-	Model    string
-	OnStep   ProgressFunc // optional; called at start of each step
+	DB     *sqlx.DB
+	Client AIClient
+	Model  string
+	OnStep ProgressFunc // optional; called at start of each step
 }
 
 // RunPipeline orchestrates the three-step recipe extraction pipeline:

@@ -227,7 +227,7 @@ func (m ConfigModel) View() string {
 	sb.WriteString("    " + fieldLabel("AI Model", m.focus == cfModel) + "\n")
 	var modelRow string
 	if m.focus == cfModel {
-		modelRow = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("◀ "+modelOptions[m.modelIdx]+" ▶")
+		modelRow = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("◀ " + modelOptions[m.modelIdx] + " ▶")
 	} else {
 		modelRow = MutedStyle.Render("◀ " + modelOptions[m.modelIdx] + " ▶")
 	}

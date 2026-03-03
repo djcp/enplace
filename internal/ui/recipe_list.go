@@ -26,7 +26,7 @@ type SearchData struct {
 type filterFocus int
 
 const (
-	ffText       filterFocus = iota
+	ffText filterFocus = iota
 	ffCourses
 	ffInfluences
 	ffStatus
@@ -443,7 +443,7 @@ func (m ListModel) renderSearchPanel() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(ColorPrimary).
-		Width(m.width - 4).
+		Width(m.width-4).
 		Padding(0, 1).
 		Render(strings.Join(rows, "\n"))
 }
@@ -497,7 +497,7 @@ func renderSearchBar(query string, typing bool, width int) string {
 		bar = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(ColorPrimary).
-			Width(width - 4).
+			Width(width-4).
 			Padding(0, 1).
 			Render(prefix + content)
 	}

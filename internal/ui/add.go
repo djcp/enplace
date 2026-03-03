@@ -68,6 +68,8 @@ type AddModel struct {
 	width  int
 	height int
 
+	retryMode bool // when true: suppress add-another/home nav; show "Retry Extraction" banner
+
 	// Outcome signals returned to the caller via RunAddUI.
 	recipeID int64
 	pipeErr  error
@@ -120,11 +122,11 @@ func NewAddModel(pasteMode bool, initialURL string, fn PipelineLaunchFn) AddMode
 	return m
 }
 
-func (m AddModel) RecipeID() int64  { return m.recipeID }
-func (m AddModel) GoHome() bool     { return m.goHome }
-func (m AddModel) GoAdd() bool      { return m.goAdd }
-func (m AddModel) GoManual() bool   { return m.goManual }
-func (m AddModel) PipeErr() error   { return m.pipeErr }
+func (m AddModel) RecipeID() int64 { return m.recipeID }
+func (m AddModel) GoHome() bool    { return m.goHome }
+func (m AddModel) GoAdd() bool     { return m.goAdd }
+func (m AddModel) GoManual() bool  { return m.goManual }
+func (m AddModel) PipeErr() error  { return m.pipeErr }
 
 func (m AddModel) Init() tea.Cmd {
 	if m.phase == addPhaseProgress {
@@ -230,6 +232,13 @@ func (m AddModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// After a pipeline failure: allow navigation.
 	if m.phase == addPhaseResult {
+		if m.retryMode {
+			switch msg.String() {
+			case "ctrl+c", "q", "esc":
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -367,7 +376,11 @@ func (m AddModel) View() string {
 	}
 	var sb strings.Builder
 
-	sb.WriteString(renderAddBanner(m.width))
+	subtitle := "Add Recipe"
+	if m.retryMode {
+		subtitle = "Retry Extraction"
+	}
+	sb.WriteString(renderAddBanner(subtitle, m.width))
 	sb.WriteString("\n")
 
 	contentHeight := m.height - 9
@@ -385,7 +398,7 @@ func (m AddModel) View() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(renderAddFooter(m.pasteMode, m.phase, m.width))
+	sb.WriteString(renderAddFooter(m.pasteMode, m.retryMode, m.phase, m.width))
 
 	return sb.String()
 }
@@ -450,7 +463,7 @@ func (m AddModel) viewInput(contentHeight int) string {
 		bar := lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(ColorPrimary).
-			Width(m.width - 6).
+			Width(m.width-6).
 			Padding(0, 1).
 			MarginLeft(2).
 			Render(prefix + inputContent)
@@ -496,8 +509,8 @@ func (m AddModel) viewProgress(contentHeight int) string {
 	return sb.String()
 }
 
-// renderAddBanner renders a "🍳  gorecipes / Add Recipe" banner.
-func renderAddBanner(width int) string {
+// renderAddBanner renders a "🍳  gorecipes / <subtitle>" banner.
+func renderAddBanner(subtitle string, width int) string {
 	breadcrumb := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
@@ -508,7 +521,7 @@ func renderAddBanner(width int) string {
 				lipgloss.NewStyle().
 					Bold(false).
 					Foreground(lipgloss.Color("#5C4A3C")).
-					Render("Add Recipe"),
+					Render(subtitle),
 		)
 
 	title := lipgloss.NewStyle().
@@ -523,13 +536,17 @@ func renderAddBanner(width int) string {
 }
 
 // renderAddFooter renders keybinding hints appropriate for the current phase.
-func renderAddFooter(pasteMode bool, phase addPhase, width int) string {
+func renderAddFooter(pasteMode, retryMode bool, phase addPhase, width int) string {
 	var keys []string
 	switch phase {
 	case addPhaseProgress:
 		keys = []string{"ctrl+c quit"}
 	case addPhaseResult:
-		keys = []string{"a add another", "h home", "q quit"}
+		if retryMode {
+			keys = []string{"esc back"}
+		} else {
+			keys = []string{"a add another", "h home", "q quit"}
+		}
 	case addPhaseMode:
 		keys = []string{"↑/↓ select", "enter confirm", "esc back"}
 	default:
@@ -559,4 +576,27 @@ func RunAddUI(pasteMode bool, initialURL string, fn PipelineLaunchFn) (recipeID 
 	}
 	fm := final.(AddModel)
 	return fm.RecipeID(), fm.GoHome(), fm.GoAdd(), fm.GoManual(), fm.PipeErr()
+}
+
+// NewAddModelForRetry constructs an AddModel that immediately starts the pipeline
+// in retry mode. The provided fn should call RunPipeline on an existing recipe ID
+// (ignoring sourceURL/sourceText). pasteMode controls which step label is shown.
+func NewAddModelForRetry(pasteMode bool, fn PipelineLaunchFn) AddModel {
+	m := AddModel{
+		launch:    fn,
+		steps:     newAddSteps(pasteMode),
+		retryMode: true,
+		width:     80,
+		height:    24,
+	}
+	return m.startPipeline("", "")
+}
+
+// RunRetryUI runs the retry extraction progress TUI.
+// The provided fn should call RunPipeline on the existing recipe.
+func RunRetryUI(pasteMode bool, fn PipelineLaunchFn) error {
+	m := NewAddModelForRetry(pasteMode, fn)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
