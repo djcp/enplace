@@ -206,19 +206,24 @@ func renderFilterPane(fs filterState, width, height int, scrollHint string) stri
 	sb.WriteString(renderFilterPaneStatus(fs.status, fs.active && fs.focus == ffStatus))
 	sb.WriteString("\n\n")
 
+	sb.WriteString(renderFilterPaneSearchButton(fs.active && fs.focus == ffSearch))
+	sb.WriteString("\n")
+
+	// Info divider — separates actionable fields from informational text.
+	sb.WriteString("\n")
+	sb.WriteString(MutedStyle.Render(" " + strings.Repeat("─", dividerW)))
+	sb.WriteString("\n\n")
+
 	if fs.active {
 		sb.WriteString(MutedStyle.Render(" ↑↓/tab navigate · esc cancel"))
 	} else {
 		sb.WriteString(MutedStyle.Render(" → or / to filter"))
 	}
-	sb.WriteString("\n\n")
-
-	sb.WriteString(renderFilterPaneSearchButton(fs.active && fs.focus == ffSearch))
 	sb.WriteString("\n")
 
 	if scrollHint != "" {
 		sb.WriteString("\n")
-		sb.WriteString(MutedStyle.Render(" " + scrollHint))
+		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorSecondary).Render(" " + scrollHint))
 		sb.WriteString("\n")
 	}
 
@@ -327,10 +332,14 @@ func renderFilterPaneSearchButton(focused bool) string {
 	if focused {
 		return " " + lipgloss.NewStyle().
 			Background(ColorPrimary).
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"}).
 			Bold(true).
 			Padding(0, 2).
 			Render("search")
 	}
-	return MutedStyle.Render(" [ search ]")
+	return " " + lipgloss.NewStyle().
+		Background(ColorHighlight).
+		Foreground(ColorSubtle).
+		Padding(0, 2).
+		Render("search")
 }

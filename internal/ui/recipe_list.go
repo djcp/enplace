@@ -433,9 +433,16 @@ func renderBanner(width int) string {
 		Foreground(ColorPrimary).
 		Render("🍳  gorecipes")
 
+	hints := MutedStyle.Render("🔍 / search") + "   " + MutedStyle.Render("⚙ m manage") + "   " + MutedStyle.Render("🏠 h home") + "   " + MutedStyle.Render("🚪 q quit")
+	innerWidth := width - 6 // border(2) + padding(2+2)
+	gap := innerWidth - lipgloss.Width(appName) - lipgloss.Width(hints)
+	if gap < 1 {
+		gap = 1
+	}
+
 	title := lipgloss.NewStyle().
 		Padding(1, 2).
-		Render(appName)
+		Render(appName + strings.Repeat(" ", gap) + hints)
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
@@ -504,15 +511,11 @@ func renderRecipeRow(r models.Recipe, selected bool, width int) string {
 
 func renderFooter(width int) string {
 	keys := []string{
-		"🧭 ↑/↓ navigate",
-		"🔍 / search",
+		"📜 ↑/↓ scroll",
 		"👁 enter view",
 		"✏️ e edit",
 		"🗑 d delete",
 		"➕ a add",
-		"🏠 h home",
-		"⚙ m manage",
-		"🚪 q quit",
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).

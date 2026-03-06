@@ -495,7 +495,10 @@ func renderMarkdown(text string, width int) string {
 
 // renderDetailBanner renders the banner with a "gorecipes / Recipe Name" breadcrumb.
 func renderDetailBanner(name string, width int) string {
-	maxNameLen := width - 26
+	hints := MutedStyle.Render("🔍 / search") + "   " + MutedStyle.Render("⚙ m manage") + "   " + MutedStyle.Render("🏠 h home") + "   " + MutedStyle.Render("🚪 q quit")
+	hintsWidth := lipgloss.Width(hints)
+
+	maxNameLen := width - 26 - hintsWidth - 4
 	if maxNameLen < 8 {
 		maxNameLen = 8
 	}
@@ -513,9 +516,15 @@ func renderDetailBanner(name string, width int) string {
 					Render(truncate(name, maxNameLen)),
 		)
 
+	innerWidth := width - 6 // border(2) + padding(2+2)
+	gap := innerWidth - lipgloss.Width(breadcrumb) - hintsWidth
+	if gap < 1 {
+		gap = 1
+	}
+
 	title := lipgloss.NewStyle().
 		Padding(1, 2).
-		Render(breadcrumb)
+		Render(breadcrumb + strings.Repeat(" ", gap) + hints)
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
@@ -528,14 +537,11 @@ func renderDetailBanner(name string, width int) string {
 func renderDetailFooter(showRetry bool, width int) string {
 	keys := []string{
 		"📜 ↑/↓ scroll",
-		"🔍 / search",
 		MutedStyle.Render("🏠 h home"),
 		MutedStyle.Render("✏️ e edit"),
-		MutedStyle.Render("🖨  p print"),
+		MutedStyle.Render("💾 p export"),
 		MutedStyle.Render("➕ a add"),
 		MutedStyle.Render("🗑 d delete"),
-		MutedStyle.Render("⚙ m manage"),
-		"🚪 q quit",
 	}
 	if showRetry {
 		keys = append(keys, MutedStyle.Render("🔄 r retry"))
