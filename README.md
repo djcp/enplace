@@ -2,6 +2,13 @@
 
 A CLI recipe manager that captures recipes from URLs or pasted text and uses Claude AI to extract structured data — ingredients, directions, timing, and classification tags — stored locally in SQLite.
 
+The UI adapts to your terminal's color scheme.
+
+| Recipe list | Recipe detail |
+|---|---|
+| ![Recipe list — dark](screenshots/dark-list.svg) | ![Recipe detail — dark](screenshots/dark-detail.svg) |
+| ![Recipe list — light](screenshots/light-list.svg) | ![Recipe detail — light](screenshots/light-detail.svg) |
+
 ## Features
 
 - **Add by URL** — fetch any recipe page; schema.org JSON-LD is parsed first with an HTML fallback
