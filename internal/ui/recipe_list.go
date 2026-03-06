@@ -30,6 +30,8 @@ const (
 	ffCourses
 	ffInfluences
 	ffStatus
+	ffSearch
+	ffCount // total number of filter fields
 )
 
 // ListModel is a Bubbletea model for the interactive recipe browser.
@@ -150,94 +152,54 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// enterTypingMode saves the current filter state and activates typing mode.
-func (m ListModel) enterTypingMode() ListModel {
-	m.savedQuery = m.query
-	m.savedCourses = append([]string(nil), m.filterCourses...)
-	m.savedInfluences = append([]string(nil), m.filterInfluences...)
-	m.savedStatus = m.filterStatus
-	m.typing = true
+// toFilterState converts the ListModel's filter fields into a shared filterState.
+func (m ListModel) toFilterState() filterState {
+	return filterState{
+		query:           m.query,
+		focus:           m.filterFocus,
+		courses:         m.filterCourses,
+		influences:      m.filterInfluences,
+		status:          m.filterStatus,
+		courseBuffer:    m.courseBuffer,
+		influenceBuffer: m.influenceBuffer,
+		allCourses:      m.allCourses,
+		allInfluences:   m.allInfluences,
+		savedQuery:      m.savedQuery,
+		savedCourses:    m.savedCourses,
+		savedInfluences: m.savedInfluences,
+		savedStatus:     m.savedStatus,
+		active:          m.typing,
+	}
+}
+
+// applyFilterState copies a shared filterState back into the ListModel's filter fields.
+func (m ListModel) applyFilterState(fs filterState) ListModel {
+	m.query = fs.query
+	m.filterFocus = fs.focus
+	m.filterCourses = fs.courses
+	m.filterInfluences = fs.influences
+	m.filterStatus = fs.status
+	m.courseBuffer = fs.courseBuffer
+	m.influenceBuffer = fs.influenceBuffer
+	m.savedQuery = fs.savedQuery
+	m.savedCourses = fs.savedCourses
+	m.savedInfluences = fs.savedInfluences
+	m.savedStatus = fs.savedStatus
+	m.typing = fs.active
 	return m
 }
 
-func (m ListModel) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.typing = false
-		m.query = m.savedQuery
-		m.filterCourses = m.savedCourses
-		m.filterInfluences = m.savedInfluences
-		m.filterStatus = m.savedStatus
-		m.savedQuery, m.savedCourses, m.savedInfluences, m.savedStatus = "", nil, nil, ""
-		m.courseBuffer, m.influenceBuffer = "", ""
+// enterTypingMode saves the current filter state and activates typing mode.
+func (m ListModel) enterTypingMode() ListModel {
+	return m.applyFilterState(m.toFilterState().enter())
+}
 
-	case tea.KeyEnter:
-		if m.filterFocus == ffCourses && m.courseBuffer != "" {
-			m.filterCourses = append(m.filterCourses, resolveMatch(m.courseBuffer, m.allCourses))
-			m.courseBuffer = ""
-			return m, nil
-		}
-		if m.filterFocus == ffInfluences && m.influenceBuffer != "" {
-			m.filterInfluences = append(m.filterInfluences, resolveMatch(m.influenceBuffer, m.allInfluences))
-			m.influenceBuffer = ""
-			return m, nil
-		}
-		m.typing = false
+func (m ListModel) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	fs, confirmed := handleFilterKey(m.toFilterState(), msg)
+	m = m.applyFilterState(fs)
+	if confirmed {
 		m.searchConfirmed = true
 		return m, tea.Quit
-
-	case tea.KeyTab:
-		m.courseBuffer, m.influenceBuffer = "", ""
-		m.filterFocus = (m.filterFocus + 1) % 4
-
-	case tea.KeyShiftTab:
-		m.courseBuffer, m.influenceBuffer = "", ""
-		m.filterFocus = (m.filterFocus - 1 + 4) % 4
-
-	case tea.KeyLeft:
-		if m.filterFocus == ffStatus {
-			m.filterStatus = prevStatus(m.filterStatus)
-		}
-
-	case tea.KeyRight:
-		if m.filterFocus == ffStatus {
-			m.filterStatus = nextStatus(m.filterStatus)
-		}
-
-	case tea.KeyBackspace, tea.KeyDelete:
-		switch m.filterFocus {
-		case ffText:
-			runes := []rune(m.query)
-			if len(runes) > 0 {
-				m.query = string(runes[:len(runes)-1])
-			}
-		case ffCourses:
-			runes := []rune(m.courseBuffer)
-			if len(runes) > 0 {
-				m.courseBuffer = string(runes[:len(runes)-1])
-			} else if len(m.filterCourses) > 0 {
-				m.filterCourses = m.filterCourses[:len(m.filterCourses)-1]
-			}
-		case ffInfluences:
-			runes := []rune(m.influenceBuffer)
-			if len(runes) > 0 {
-				m.influenceBuffer = string(runes[:len(runes)-1])
-			} else if len(m.filterInfluences) > 0 {
-				m.filterInfluences = m.filterInfluences[:len(m.filterInfluences)-1]
-			}
-		}
-
-	default:
-		if msg.Type == tea.KeyRunes {
-			switch m.filterFocus {
-			case ffText:
-				m.query += string(msg.Runes)
-			case ffCourses:
-				m.courseBuffer += string(msg.Runes)
-			case ffInfluences:
-				m.influenceBuffer += string(msg.Runes)
-			}
-		}
 	}
 	return m, nil
 }
@@ -288,7 +250,7 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteTargetID = m.recipes[m.cursor].ID
 			m.deleteTargetName = m.recipes[m.cursor].Name
 		}
-	case "/":
+	case "/", "right":
 		m = m.enterTypingMode()
 		m.filterFocus = ffText
 	case "up", "k":
@@ -297,10 +259,6 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.cursor < m.offset {
 				m.offset = m.cursor
 			}
-		} else {
-			// Already at the top row — move focus up into the search panel.
-			m = m.enterTypingMode()
-			m.filterFocus = ffText
 		}
 	case "down", "j":
 		if m.cursor < len(m.recipes)-1 {
@@ -323,17 +281,10 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m ListModel) visibleRows() int {
-	// Banner (4) + col header (1) + blank-before-footer (1) + footer (2) = 8 fixed overhead.
-	// Selected row expands to 2 lines, so we reserve 1 extra = 9 total overhead.
-	// Inactive filter bar adds 1 line.
-	// Active filter panel is a 7-line bordered box (5 content rows + 2 border lines)
-	// plus 2 blank lines after = 9 total lines taken, minus the base 1 = net 8 extra.
-	v := m.height - 9
-	if m.typing {
-		v -= 8
-	} else if m.hasActiveFilters() {
-		v -= 1
-	}
+	// Banner (4) + col header (1) + blank-before-footer (1) + footer (2) = 8 fixed overhead,
+	// plus 1 for the terminal line between banner and content = 9 total.
+	// Each recipe row is always 2 terminal lines (name/status + description), so divide by 2.
+	v := (m.height - 9) / 2
 	if v < 1 {
 		v = 1
 	}
@@ -343,15 +294,14 @@ func (m ListModel) visibleRows() int {
 func (m ListModel) View() string {
 	var sb strings.Builder
 
-	// Banner.
+	// Banner — full width.
 	sb.WriteString(renderBanner(m.width))
 	sb.WriteString("\n")
 
-	// Delete confirmation overlay — replaces list content and footer.
+	// Delete confirmation overlay — replaces split content and footer.
 	if m.confirmingDelete {
 		confirmContent := m.viewConfirm()
 		sb.WriteString(confirmContent)
-		// Fill remaining height so the footer stays pinned.
 		used := strings.Count(sb.String(), "\n")
 		if fill := m.height - used - 3; fill > 0 {
 			sb.WriteString(strings.Repeat("\n", fill))
@@ -373,27 +323,34 @@ func (m ListModel) View() string {
 		return sb.String()
 	}
 
-	// Filter panel — expanded when typing, compact summary line when filters active.
-	if m.typing || m.hasActiveFilters() {
-		if m.typing {
-			sb.WriteString(m.renderSearchPanel())
-			sb.WriteString("\n\n")
-		} else {
-			sb.WriteString(m.renderInactiveFilter())
-			sb.WriteString("\n")
-		}
-	}
+	// Split layout: list pane (66%) on the left, filter pane (33%) on the right.
+	listWidth := (m.width * 2) / 3
+	filterWidth := m.width - listWidth
+	contentH := 2*m.visibleRows() + 1 // col header (1) + visible rows × 2 lines each
 
-	// Column headers.
-	sb.WriteString(renderColumnHeaders(m.width))
+	leftPane := m.renderListPane(listWidth)
+	rightPane := m.renderFilterPane(filterWidth, contentH)
+
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
+	sb.WriteString("\n")
+	sb.WriteString(renderFooter(m.width))
+
+	return sb.String()
+}
+
+// renderListPane renders the left pane (column headers + recipe rows + fill).
+func (m ListModel) renderListPane(width int) string {
+	var sb strings.Builder
+
+	sb.WriteString(renderColumnHeaders(width))
 	sb.WriteString("\n")
 
 	visible := m.visibleRows()
 	if len(m.recipes) == 0 {
-		// A filter/search was active but returned nothing.
 		sb.WriteString(MutedStyle.Render("  No recipes match the current filters."))
 		sb.WriteString("\n")
-		for i := 1; i <= visible; i++ {
+		// Fill remaining 2-line slots (minus the 1 line used by the message above).
+		for i := 1; i < 2*visible; i++ {
 			sb.WriteString("\n")
 		}
 	} else {
@@ -401,195 +358,33 @@ func (m ListModel) View() string {
 		if end > len(m.recipes) {
 			end = len(m.recipes)
 		}
-
 		for i := m.offset; i < end; i++ {
 			r := m.recipes[i]
 			selected := i == m.cursor
-			sb.WriteString(renderRecipeRow(r, selected, m.width))
+			sb.WriteString(renderRecipeRow(r, selected, width))
 			sb.WriteString("\n")
 		}
-
-		// Fill remaining viewport rows so the footer stays pinned.
+		// Fill remaining viewport slots — each slot is 2 terminal lines.
 		for i := end - m.offset; i < visible; i++ {
-			sb.WriteString("\n")
-		}
-
-		// Scroll hint — only shown when there are more recipes than fit.
-		if len(m.recipes) > visible {
-			total := len(m.recipes)
-			shown := fmt.Sprintf("  %d–%d of %d", m.offset+1, end, total)
-			sb.WriteString("\n")
-			sb.WriteString(MutedStyle.Render(shown))
-			sb.WriteString("\n")
-		}
-	}
-
-	// Footer keybindings.
-	sb.WriteString("\n")
-	sb.WriteString(renderFooter(m.width))
-
-	return sb.String()
-}
-
-// renderSearchPanel renders the expanded filter panel shown when m.typing is true.
-func (m ListModel) renderSearchPanel() string {
-	rows := []string{
-		renderTextSearchRow(m.query, m.filterFocus == ffText),
-		MutedStyle.Render("  tab: next field    enter: search    esc: cancel"),
-		renderTagFilterRow("courses:", models.TagContextCourses, m.filterCourses, m.courseBuffer, m.allCourses, m.filterFocus == ffCourses),
-		renderTagFilterRow("influences:", models.TagContextCulturalInfluences, m.filterInfluences, m.influenceBuffer, m.allInfluences, m.filterFocus == ffInfluences),
-		renderStatusRow(m.filterStatus, m.filterFocus == ffStatus),
-	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(ColorPrimary).
-		Width(m.width-4).
-		Padding(0, 1).
-		Render(strings.Join(rows, "\n"))
-}
-
-// renderInactiveFilter renders the compact summary line when filters are active but panel is closed.
-func (m ListModel) renderInactiveFilter() string {
-	prefix := MutedStyle.Render("  / ")
-	var parts []string
-	if m.query != "" {
-		parts = append(parts, lipgloss.NewStyle().Foreground(ColorPrimary).Render(m.query))
-	}
-	if len(m.filterCourses) > 0 {
-		parts = append(parts, MutedStyle.Render("courses: ")+strings.Join(m.filterCourses, ", "))
-	}
-	if len(m.filterInfluences) > 0 {
-		parts = append(parts, MutedStyle.Render("influences: ")+strings.Join(m.filterInfluences, ", "))
-	}
-	if m.filterStatus != "" {
-		parts = append(parts, StatusBadge(m.filterStatus))
-	}
-	sep := MutedStyle.Render("  ·  ")
-	return prefix + strings.Join(parts, sep)
-}
-
-// renderSearchBar renders the single-row bordered search bar used by the detail view.
-func renderSearchBar(query string, typing bool, width int) string {
-	prefix := MutedStyle.Render("  / ")
-	cursor := lipgloss.NewStyle().
-		Background(ColorPrimary).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Render(" ")
-
-	var content string
-	if typing {
-		if query == "" {
-			content = MutedStyle.Render("search by title or ingredient...") + cursor
-		} else {
-			content = query + cursor
-		}
-	} else if query != "" {
-		content = lipgloss.NewStyle().Foreground(ColorPrimary).Render(query)
-	} else {
-		content = MutedStyle.Render("search by title or ingredient...")
-	}
-
-	bar := lipgloss.NewStyle().
-		Width(width - 2).
-		Render(prefix + content)
-
-	if typing {
-		bar = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(ColorPrimary).
-			Width(width-4).
-			Padding(0, 1).
-			Render(prefix + content)
-	}
-
-	return bar
-}
-
-func renderTextSearchRow(query string, focused bool) string {
-	prefix := MutedStyle.Render("  / ")
-	cursor := lipgloss.NewStyle().
-		Background(ColorPrimary).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Render(" ")
-
-	var content string
-	if focused {
-		if query == "" {
-			content = MutedStyle.Render("search by title or ingredient...") + cursor
-		} else {
-			content = query + cursor
-		}
-	} else if query != "" {
-		content = lipgloss.NewStyle().Foreground(ColorPrimary).Render(query)
-	} else {
-		content = MutedStyle.Render("search by title or ingredient...")
-	}
-
-	return prefix + content
-}
-
-func renderTagFilterRow(label, ctx string, pills []string, buffer string, suggestions []string, focused bool) string {
-	var sb strings.Builder
-	sb.WriteString(MutedStyle.Render(fmt.Sprintf("  %-12s", label)))
-
-	pillStyle := lipgloss.NewStyle().
-		Background(TagStyle(ctx).GetBackground()).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Padding(0, 1)
-
-	for _, p := range pills {
-		sb.WriteString(pillStyle.Render(p))
-		sb.WriteString(" ")
-	}
-
-	if focused {
-		cursor := lipgloss.NewStyle().
-			Background(ColorPrimary).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Render(" ")
-		match := findFirstMatch(buffer, suggestions)
-		if buffer != "" {
-			sb.WriteString(buffer)
-			if match != "" {
-				sb.WriteString(cursor)
-				sb.WriteString(MutedStyle.Render(match[len(buffer):]))
-			} else {
-				sb.WriteString(cursor)
-			}
-		} else {
-			if len(pills) == 0 {
-				sb.WriteString(MutedStyle.Render("type to filter... "))
-			}
-			sb.WriteString(cursor)
-		}
-	} else if len(pills) == 0 {
-		sb.WriteString(MutedStyle.Render("any"))
-	}
-
-	return sb.String()
-}
-
-func renderStatusRow(status string, focused bool) string {
-	var sb strings.Builder
-	sb.WriteString(MutedStyle.Render("  status:     "))
-
-	if focused {
-		sb.WriteString(MutedStyle.Render("◀ "))
-		if status == "" {
-			sb.WriteString("all")
-		} else {
-			sb.WriteString(StatusBadge(status))
-		}
-		sb.WriteString(MutedStyle.Render(" ▶"))
-	} else {
-		if status == "" {
-			sb.WriteString(MutedStyle.Render("all"))
-		} else {
-			sb.WriteString(StatusBadge(status))
+			sb.WriteString("\n\n")
 		}
 	}
 
 	return sb.String()
+}
+
+// renderFilterPane renders the right pane (filter inputs + scroll info) with a left border separator.
+func (m ListModel) renderFilterPane(width, height int) string {
+	var scrollHint string
+	visible := m.visibleRows()
+	if len(m.recipes) > visible {
+		end := m.offset + visible
+		if end > len(m.recipes) {
+			end = len(m.recipes)
+		}
+		scrollHint = fmt.Sprintf("%d–%d of %d", m.offset+1, end, len(m.recipes))
+	}
+	return renderFilterPane(m.toFilterState(), width, height, scrollHint)
 }
 
 var statusCycle = []string{"", "draft", "review", "published"}
@@ -695,16 +490,16 @@ func renderRecipeRow(r models.Recipe, selected bool, width int) string {
 
 	row := fmt.Sprintf("  %-*s  %-14s  %-8s  %s", nw, name, courses, timeStr, status)
 
+	desc := truncate(r.Description, width-4)
 	if selected {
-		desc := truncate(r.Description, width-4)
+		descLine := MutedStyle.Render("  " + desc)
 		if desc == "" {
-			desc = MutedStyle.Render("  no description")
-		} else {
-			desc = MutedStyle.Render("  " + desc)
+			descLine = MutedStyle.Render("  no description")
 		}
-		return HighlightStyle.Width(width).Render(row + "\n" + desc)
+		return HighlightStyle.Width(width).Render(row + "\n" + descLine)
 	}
-	return row
+	// Non-selected: keep the second line blank so the layout never jumps.
+	return row + "\n"
 }
 
 func renderFooter(width int) string {

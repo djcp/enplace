@@ -10,6 +10,7 @@ import (
 	"github.com/djcp/gorecipes/internal/config"
 	"github.com/djcp/gorecipes/internal/db"
 	"github.com/djcp/gorecipes/internal/ui"
+	"github.com/djcp/gorecipes/internal/version"
 	"github.com/jmoiron/sqlx"
 	"github.com/spf13/cobra"
 )
@@ -21,11 +22,11 @@ var (
 
 // Root is the top-level command. Running it with no subcommand opens the recipe browser.
 var Root = &cobra.Command{
-	Use:   "gorecipes",
-	Short: "A CLI recipe manager powered by Claude AI",
-	Long: `gorecipes — save recipes from URLs or pasted text.
-Claude extracts structured data automatically.`,
-	RunE: runList,
+	Use:     "gorecipes",
+	Short:   "A CLI recipe manager powered by Claude AI",
+	Long:    "gorecipes — save recipes from URLs or pasted text.\nClaude extracts structured data automatically.",
+	Version: version.Version,
+	RunE:    runList,
 }
 
 func init() {

@@ -256,8 +256,13 @@ func TestTypingKey_Tab_CyclesFocus(t *testing.T) {
 	}
 
 	m5 := updateList(m4, keySpecial(tea.KeyTab))
-	if m5.filterFocus != ffText {
-		t.Errorf("tab from ffStatus should wrap to ffText, got %d", m5.filterFocus)
+	if m5.filterFocus != ffSearch {
+		t.Errorf("tab from ffStatus: want ffSearch, got %d", m5.filterFocus)
+	}
+
+	m6 := updateList(m5, keySpecial(tea.KeyTab))
+	if m6.filterFocus != ffText {
+		t.Errorf("tab from ffSearch should wrap to ffText, got %d", m6.filterFocus)
 	}
 }
 
@@ -267,8 +272,38 @@ func TestTypingKey_ShiftTab_CyclesBackward(t *testing.T) {
 	m.filterFocus = ffText
 
 	m2 := updateList(m, keySpecial(tea.KeyShiftTab))
-	if m2.filterFocus != ffStatus {
-		t.Errorf("shift-tab from ffText should wrap to ffStatus, got %d", m2.filterFocus)
+	if m2.filterFocus != ffSearch {
+		t.Errorf("shift-tab from ffText should wrap to ffSearch, got %d", m2.filterFocus)
+	}
+}
+
+func TestTypingKey_UpDown_NavigatesFields(t *testing.T) {
+	m := newTestListModel()
+	m = m.enterTypingMode()
+	m.filterFocus = ffText
+
+	m2 := updateList(m, keySpecial(tea.KeyDown))
+	if m2.filterFocus != ffCourses {
+		t.Errorf("down from ffText: want ffCourses, got %d", m2.filterFocus)
+	}
+
+	m3 := updateList(m2, keySpecial(tea.KeyUp))
+	if m3.filterFocus != ffText {
+		t.Errorf("up from ffCourses: want ffText, got %d", m3.filterFocus)
+	}
+
+	// down wraps from ffSearch back to ffText
+	m4 := m
+	m4.filterFocus = ffSearch
+	m5 := updateList(m4, keySpecial(tea.KeyDown))
+	if m5.filterFocus != ffText {
+		t.Errorf("down from ffSearch should wrap to ffText, got %d", m5.filterFocus)
+	}
+
+	// up wraps from ffText back to ffSearch
+	m6 := updateList(m, keySpecial(tea.KeyUp))
+	if m6.filterFocus != ffSearch {
+		t.Errorf("up from ffText should wrap to ffSearch, got %d", m6.filterFocus)
 	}
 }
 
@@ -603,17 +638,17 @@ func TestNavKey_Esc_WithoutFilters_DoesNothing(t *testing.T) {
 
 // ── handleNavKey — up at top row ─────────────────────────────────────────────
 
-func TestNavKey_UpAtTop_OpensTypingMode(t *testing.T) {
+func TestNavKey_UpAtTop_DoesNothing(t *testing.T) {
 	m := newTestListModel()
 	m.cursor = 0
 
 	m2 := updateList(m, keySpecial(tea.KeyUp))
 
-	if !m2.typing {
-		t.Error("up at top row should open typing mode")
+	if m2.typing {
+		t.Error("up at top row should not open typing mode")
 	}
-	if m2.filterFocus != ffText {
-		t.Errorf("up at top row should focus ffText, got %d", m2.filterFocus)
+	if m2.cursor != 0 {
+		t.Errorf("cursor should stay at 0, got %d", m2.cursor)
 	}
 }
 

@@ -160,7 +160,16 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		goHome, goAdd, goEdit, goPrint, goManage, goRetry, deleteConfirmed, searchQuery, err := ui.RunDetailUI(recipe)
+		goHome, goAdd, goEdit, goPrint, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(
+			recipe,
+			ui.FilterState{
+				Query:      filter.Query,
+				Courses:    filter.Courses,
+				Influences: filter.CulturalInfluences,
+				Status:     filter.StatusFilter,
+			},
+			searchData,
+		)
 		if err != nil {
 			return err
 		}
@@ -218,8 +227,13 @@ func runList(_ *cobra.Command, _ []string) error {
 			break
 		}
 
-		// User chose "home" — loop back to the list, preserving advanced filters.
-		filter.Query = searchQuery
+		// User chose "home" — loop back to the list with any filter changes from detail.
+		filter = db.RecipeFilter{
+			Query:              returnFilter.Query,
+			Courses:            returnFilter.Courses,
+			CulturalInfluences: returnFilter.Influences,
+			StatusFilter:       returnFilter.Status,
+		}
 	}
 
 	return nil

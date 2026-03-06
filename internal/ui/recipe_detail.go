@@ -36,11 +36,11 @@ type detailFocus int
 const (
 	detailFocusContent detailFocus = iota
 	detailFocusHeader              // search bar active
-	detailFocusFooter              // home / navigation active
 )
 
 // DetailModel is a full-screen interactive recipe detail viewer that mirrors
-// the visual structure of ListModel: banner, search bar, scrollable content, footer.
+// the visual structure of ListModel: banner, scrollable content, footer.
+// When the user presses "/" the right pane opens with the same filter panel as the list view.
 type DetailModel struct {
 	recipe *models.Recipe
 	lines  []string // pre-rendered content split into terminal lines
@@ -48,8 +48,8 @@ type DetailModel struct {
 	width  int
 	height int
 
-	focus detailFocus
-	query string // search bar text (carried back to the list on "home")
+	focus  detailFocus
+	filter filterState // search/filter pane state (shared with list view)
 
 	goHome           bool
 	goAdd            bool
@@ -57,17 +57,23 @@ type DetailModel struct {
 	goPrint          bool
 	goManage         bool
 	goRetry          bool
-	returnQuery      string
 	confirmingDelete bool
 	deleteConfirmed  bool
 }
 
 // NewDetailModel creates a DetailModel for the given recipe.
+// initial carries any active filter from the calling context (e.g. list view).
+// sd provides autocomplete suggestions for the filter pane.
 // It detects the terminal background colour and pre-renders content before
 // the TUI starts so the first frame and any resize redraws are instant.
-func NewDetailModel(recipe *models.Recipe) DetailModel {
+func NewDetailModel(recipe *models.Recipe, initial FilterState, sd SearchData) DetailModel {
 	detectedGlamourStyle() // warm up the cache before entering the event loop
-	m := DetailModel{recipe: recipe, width: 80, height: 24}
+	m := DetailModel{
+		recipe: recipe,
+		width:  80,
+		height: 24,
+		filter: newFilterState(initial, sd),
+	}
 	m.lines = m.buildLines()
 	return m
 }
@@ -93,18 +99,14 @@ func (m DetailModel) GoRetry() bool { return m.goRetry }
 // DeleteConfirmed returns true when the user confirmed deletion of the recipe.
 func (m DetailModel) DeleteConfirmed() bool { return m.deleteConfirmed }
 
-// ReturnQuery returns any search text typed before leaving.
-func (m DetailModel) ReturnQuery() string { return m.returnQuery }
+// ReturnFilter returns the filter state the user had when leaving (for passing back to the list).
+func (m DetailModel) ReturnFilter() FilterState { return m.filter.toPublicFilter() }
 
 func (m DetailModel) Init() tea.Cmd { return nil }
 
-// viewportHeight mirrors the list model's formula so the two views feel identical.
-// When the search bar is visible (header focus) it adds 4 lines of overhead.
+// viewportHeight returns the number of content lines visible in the viewport.
 func (m DetailModel) viewportHeight() int {
 	v := m.height - 7
-	if m.focus == detailFocusHeader {
-		v -= 4
-	}
 	if v < 1 {
 		v = 1
 	}
@@ -155,36 +157,29 @@ func (m DetailModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleHeaderKey processes keys while the search bar has focus.
+// handleHeaderKey processes keys while the filter pane has focus.
 func (m DetailModel) handleHeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		// Cancel search: clear query and return focus to content.
-		m.query = ""
-		m.focus = detailFocusContent
+	wasActive := m.filter.active
+	fs, confirmed := handleFilterKey(m.filter, msg)
+	m.filter = fs
 
-	case tea.KeyEnter:
-		// Confirm search: go home with the current query.
+	if confirmed {
+		// User pressed Enter/Search — go home with the selected filters.
 		m.goHome = true
-		m.returnQuery = m.query
-		return m, tea.Quit
-
-	case tea.KeyBackspace, tea.KeyDelete:
-		if len(m.query) > 0 {
-			runes := []rune(m.query)
-			m.query = string(runes[:len(runes)-1])
-		}
-
-	case tea.KeyDown:
-		// Dismiss search bar, return to content at top.
 		m.focus = detailFocusContent
-		m.scroll = 0
+		m.lines = m.buildLines()
+		return m, tea.Quit
+	}
 
-	default:
-		if msg.Type == tea.KeyRunes {
-			m.query += string(msg.Runes)
+	if wasActive && !fs.active {
+		// Esc was pressed — close the filter pane and restore full-width content.
+		m.focus = detailFocusContent
+		m.lines = m.buildLines()
+		if m.scroll > m.maxScroll() {
+			m.scroll = m.maxScroll()
 		}
 	}
+
 	return m, nil
 }
 
@@ -195,26 +190,15 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "q":
-		switch m.focus {
-		case detailFocusFooter:
-			m.focus = detailFocusContent
-		default:
-			return m, tea.Quit
-		}
+		return m, tea.Quit
+
 	case "esc":
-		switch m.focus {
-		case detailFocusFooter:
-			m.focus = detailFocusContent
-		default:
-			// Go back to the list (preserving any active search query).
-			m.goHome = true
-			m.returnQuery = m.query
-			return m, tea.Quit
-		}
+		// Go back to the list (preserving any active filter).
+		m.goHome = true
+		return m, tea.Quit
 
 	case "h":
 		m.goHome = true
-		m.returnQuery = m.query
 		return m, tea.Quit
 
 	case "a":
@@ -242,54 +226,35 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.confirmingDelete = true
 
-	case "/":
+	case "/", "right":
+		m.filter = m.filter.enter()
+		m.filter.focus = ffText
 		m.focus = detailFocusHeader
-
-	case "enter":
-		switch m.focus {
-		case detailFocusFooter:
-			m.goHome = true
-			m.returnQuery = m.query
-			return m, tea.Quit
+		m.lines = m.buildLines()
+		if m.scroll > m.maxScroll() {
+			m.scroll = m.maxScroll()
 		}
 
 	case "up", "k":
-		switch m.focus {
-		case detailFocusContent:
-			if m.scroll > 0 {
-				m.scroll--
-			}
-		case detailFocusFooter:
-			// Return to content, positioned at the bottom.
-			m.focus = detailFocusContent
+		if m.scroll > 0 {
+			m.scroll--
 		}
 
 	case "down", "j":
-		switch m.focus {
-		case detailFocusContent:
-			if m.scroll < m.maxScroll() {
-				m.scroll++
-			} else {
-				// At bottom: shift focus to the footer.
-				m.focus = detailFocusFooter
-			}
+		if m.scroll < m.maxScroll() {
+			m.scroll++
 		}
 
 	case "pgup":
-		if m.focus == detailFocusContent {
-			m.scroll -= m.viewportHeight()
-			if m.scroll < 0 {
-				m.scroll = 0
-			}
+		m.scroll -= m.viewportHeight()
+		if m.scroll < 0 {
+			m.scroll = 0
 		}
 
 	case "pgdown":
-		if m.focus == detailFocusContent {
-			m.scroll += m.viewportHeight()
-			if m.scroll >= m.maxScroll() {
-				m.scroll = m.maxScroll()
-				m.focus = detailFocusFooter
-			}
+		m.scroll += m.viewportHeight()
+		if m.scroll > m.maxScroll() {
+			m.scroll = m.maxScroll()
 		}
 	}
 
@@ -324,31 +289,46 @@ func (m DetailModel) View() string {
 		return sb.String()
 	}
 
-	// Search bar — only visible when the user pressed "/" to initiate a search.
-	if m.focus == detailFocusHeader {
-		sb.WriteString(renderSearchBar(m.query, true, m.width))
-		sb.WriteString("\n\n")
-	}
-
-	// Scrollable content viewport.
 	vh := m.viewportHeight()
 	start := m.scroll
 	end := start + vh
 	if end > len(lines) {
 		end = len(lines)
 	}
-	for i := start; i < end; i++ {
-		sb.WriteString(lines[i])
+
+	if m.focus == detailFocusHeader {
+		// Split layout: content on left (66%), filter pane on right (33%).
+		listWidth := (m.width * 2) / 3
+		filterWidth := m.width - listWidth
+
+		var lsb strings.Builder
+		for i := start; i < end; i++ {
+			lsb.WriteString(lines[i])
+			lsb.WriteString("\n")
+		}
+		for i := end - start; i < vh; i++ {
+			lsb.WriteString("\n")
+		}
+
+		leftPane := lipgloss.NewStyle().Width(listWidth).Render(lsb.String())
+		rightPane := renderFilterPane(m.filter, filterWidth, vh, "")
+		sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
 		sb.WriteString("\n")
-	}
-	// Pad any remaining viewport rows so the footer stays pinned to the bottom.
-	for i := end - start; i < vh; i++ {
+	} else {
+		// Single-column: full-width scrollable content viewport.
+		for i := start; i < end; i++ {
+			sb.WriteString(lines[i])
+			sb.WriteString("\n")
+		}
+		// Pad remaining viewport rows so the footer stays pinned to the bottom.
+		for i := end - start; i < vh; i++ {
+			sb.WriteString("\n")
+		}
 		sb.WriteString("\n")
 	}
 
 	// Footer.
-	sb.WriteString("\n")
-	sb.WriteString(renderDetailFooter(m.focus, m.recipe.IsFailed(), m.width))
+	sb.WriteString(renderDetailFooter(m.recipe.IsFailed(), m.width))
 
 	return sb.String()
 }
@@ -379,8 +359,12 @@ func (m DetailModel) viewConfirm() string {
 
 // buildLines renders the recipe body at the current terminal width and splits
 // the result into individual terminal lines for viewport scrolling.
+// When the filter pane is open the content is constrained to the left 66% of the terminal.
 func (m DetailModel) buildLines() []string {
 	contentWidth := m.width - 4
+	if m.focus == detailFocusHeader {
+		contentWidth = (m.width * 2 / 3) - 4
+	}
 	if contentWidth > 100 {
 		contentWidth = 100
 	}
@@ -540,21 +524,12 @@ func renderDetailBanner(name string, width int) string {
 		Render(title)
 }
 
-// renderDetailFooter renders the footer; "h home" and the border are highlighted
-// when footer has focus, signalling the user can press enter or h.
-func renderDetailFooter(focus detailFocus, showRetry bool, width int) string {
-	homeStyle := MutedStyle
-	borderColor := ColorBorder
-
-	if focus == detailFocusFooter {
-		homeStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
-		borderColor = ColorPrimary
-	}
-
+// renderDetailFooter renders the key-hint footer for the recipe detail view.
+func renderDetailFooter(showRetry bool, width int) string {
 	keys := []string{
 		"📜 ↑/↓ scroll",
 		"🔍 / search",
-		homeStyle.Render("🏠 h home"),
+		MutedStyle.Render("🏠 h home"),
 		MutedStyle.Render("✏️ e edit"),
 		MutedStyle.Render("🖨  p print"),
 		MutedStyle.Render("➕ a add"),
@@ -569,7 +544,7 @@ func renderDetailFooter(focus detailFocus, showRetry bool, width int) string {
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(borderColor).
+		BorderForeground(ColorBorder).
 		Width(width - 2).
 		Render(footerLine(keys, width-2))
 }
@@ -582,14 +557,15 @@ func min(a, b int) int {
 }
 
 // RunDetailUI runs the interactive recipe detail TUI.
-// Returns navigation signals, whether the user confirmed deletion, the search query, and any error.
-func RunDetailUI(recipe *models.Recipe) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goManage bool, goRetry bool, deleteConfirmed bool, searchQuery string, err error) {
-	m := NewDetailModel(recipe)
+// initial carries the active filter from the calling context; sd provides autocomplete suggestions.
+// Returns navigation signals, whether the user confirmed deletion, the return filter state, and any error.
+func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goManage bool, goRetry bool, deleteConfirmed bool, returnFilter FilterState, err error) {
+	m := NewDetailModel(recipe, initial, sd)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return false, false, false, false, false, false, false, "", runErr
+		return false, false, false, false, false, false, false, FilterState{}, runErr
 	}
 	fm := final.(DetailModel)
-	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnQuery(), nil
+	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnFilter(), nil
 }
