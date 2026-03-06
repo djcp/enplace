@@ -9,6 +9,37 @@ go test ./...        # all tests must pass
 gofmt -l .           # any listed files need gofmt -w <file>
 ```
 
+## Creating a release
+
+Cross-compilation and asset uploading are handled automatically by `.github/workflows/release.yaml` (using `wangyoucao577/go-release-action`) when a GitHub release is created. There is nothing to build locally.
+
+### Pre-flight
+
+```sh
+go test ./...   # all tests must pass
+gofmt -l .      # fix any listed files with gofmt -w <file>
+```
+
+### Steps
+
+1. **Tag and push** the tag:
+
+```sh
+git tag v1.0.x-alpha
+git push origin v1.0.x-alpha
+```
+
+2. **Create the GitHub release** — this triggers CI to build and attach binaries:
+
+```sh
+gh release create v1.0.x-alpha \
+  --title "v1.0.x-alpha - <short description>" \
+  --notes "<release notes>" \
+  --prerelease
+```
+
+That's it. GitHub Actions will cross-compile for all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64) and attach the archives and MD5 checksums to the release automatically.
+
 ## UI / lipgloss rendering
 
 ### Centering multi-line blocks (dialogs, forms, overlays)
