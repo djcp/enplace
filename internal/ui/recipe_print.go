@@ -362,7 +362,7 @@ func renderPrintBanner(name string, width int) string {
 				"  " +
 				lipgloss.NewStyle().
 					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
+					Foreground(ColorSubtle).
 					Render(truncate(name, maxNameLen)),
 		)
 

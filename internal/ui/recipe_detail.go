@@ -416,7 +416,7 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	if r.Description != "" {
 		sb.WriteString(lipgloss.NewStyle().
 			Italic(true).
-			Foreground(lipgloss.Color("#5C4A3C")).
+			Foreground(ColorSubtle).
 			Width(width).
 			Render(r.Description))
 		sb.WriteString("\n\n")
@@ -509,7 +509,7 @@ func renderDetailBanner(name string, width int) string {
 				"  " +
 				lipgloss.NewStyle().
 					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
+					Foreground(ColorSubtle).
 					Render(truncate(name, maxNameLen)),
 		)
 

@@ -985,7 +985,7 @@ func (m EditModel) renderIngRow(row ingredientRow, rowFocused bool, rowIdx int) 
 		if isFocused {
 			return lipgloss.NewStyle().
 				Background(ColorHighlight).
-				Foreground(lipgloss.Color("#2D1810")).
+				Foreground(ColorHighlightFg).
 				Width(width).
 				Render(v)
 		}
@@ -1059,7 +1059,7 @@ func renderEditBanner(name string, width int) string {
 				"  " +
 				lipgloss.NewStyle().
 					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
+					Foreground(ColorSubtle).
 					Render(truncate(name, width-30)+" / Edit"),
 		)
 
