@@ -123,12 +123,8 @@ func (m PrintModel) handlePreviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.scroll > m.maxScroll() {
 			m.scroll = m.maxScroll()
 		}
-	case "s":
-		m.phase = printPhaseFormatSelect
 	case "p":
-		// Direct print shortcut: jump to printer option and execute
-		m.cursor = len(exportFormats) - 1
-		m = m.execute()
+		m.phase = printPhaseFormatSelect
 	}
 	return m, nil
 }
@@ -345,7 +341,7 @@ func (m PrintModel) buildPreviewLines() []string {
 }
 
 func renderPrintBanner(name string, width int) string {
-	hint := MutedStyle.Render("📜 print preview")
+	hint := MutedStyle.Render("💾 export preview")
 	hintWidth := lipgloss.Width(hint)
 
 	maxNameLen := width - 26 - hintWidth - 2
@@ -386,8 +382,7 @@ func renderPrintBanner(name string, width int) string {
 func renderPrintPreviewFooter(width int) string {
 	keys := []string{
 		MutedStyle.Render("📜 ↑/↓ scroll"),
-		MutedStyle.Render("💾 s save/export"),
-		MutedStyle.Render("🖨  p print"),
+		MutedStyle.Render("💾 p export"),
 		MutedStyle.Render("✖ esc back"),
 	}
 	return lipgloss.NewStyle().
@@ -400,8 +395,8 @@ func renderPrintPreviewFooter(width int) string {
 
 func renderFormatSelectFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("↑/↓ navigate"),
-		MutedStyle.Render("enter select"),
+		MutedStyle.Render("📜 ↑/↓ navigate"),
+		MutedStyle.Render("👁 enter select"),
 		MutedStyle.Render("✖ esc back"),
 	}
 	return lipgloss.NewStyle().
