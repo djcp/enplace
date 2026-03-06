@@ -7,21 +7,27 @@ import (
 	"github.com/djcp/gorecipes/internal/version"
 )
 
-// Palette — warm, food-inspired earth tones.
+// Palette — warm, food-inspired earth tones. Each color uses AdaptiveColor so
+// values are chosen for both light and dark terminal backgrounds.
 var (
-	ColorPrimary   = lipgloss.Color("#C96442") // terracotta
-	ColorSecondary = lipgloss.Color("#7C9E6E") // sage green
-	ColorMuted     = lipgloss.Color("#8E8178") // warm gray
-	ColorFaint     = lipgloss.Color("#B8B0A8") // very light warm gray — for version tags
-	ColorBorder    = lipgloss.Color("#DDD5CC") // light warm gray
-	ColorBg        = lipgloss.Color("#FDF8F3") // off-white cream
-	ColorSuccess   = lipgloss.Color("#5A8A5A") // muted green
-	ColorWarning   = lipgloss.Color("#B8832A") // amber
-	ColorError     = lipgloss.Color("#B84040") // muted red
-	ColorHighlight = lipgloss.Color("#E8D5C4") // peach
+	ColorPrimary   = lipgloss.AdaptiveColor{Light: "#C96442", Dark: "#E07856"} // terracotta
+	ColorSecondary = lipgloss.AdaptiveColor{Light: "#7C9E6E", Dark: "#90B882"} // sage green
+	ColorMuted     = lipgloss.AdaptiveColor{Light: "#8E8178", Dark: "#A89888"} // warm gray
+	ColorFaint     = lipgloss.AdaptiveColor{Light: "#B8B0A8", Dark: "#685E56"} // subtle — version tags
+	ColorBorder    = lipgloss.AdaptiveColor{Light: "#DDD5CC", Dark: "#3C3028"} // border
+	ColorBg        = lipgloss.AdaptiveColor{Light: "#FDF8F3", Dark: "#1A1614"} // background
+	ColorSuccess   = lipgloss.AdaptiveColor{Light: "#5A8A5A", Dark: "#70A870"} // muted green
+	ColorWarning   = lipgloss.AdaptiveColor{Light: "#B8832A", Dark: "#D4983A"} // amber
+	ColorError     = lipgloss.AdaptiveColor{Light: "#B84040", Dark: "#D05050"} // muted red
+	ColorHighlight = lipgloss.AdaptiveColor{Light: "#E8D5C4", Dark: "#3D2A1E"} // selected row bg
+
+	// ColorSubtle is a warm brown used for secondary/breadcrumb text.
+	ColorSubtle = lipgloss.AdaptiveColor{Light: "#5C4A3C", Dark: "#BCA898"}
+	// ColorHighlightFg is the foreground text colour used on highlighted (selected) rows.
+	ColorHighlightFg = lipgloss.AdaptiveColor{Light: "#2D1810", Dark: "#F5EAE0"}
 
 	// Status badge colors.
-	StatusColors = map[string]lipgloss.Color{
+	StatusColors = map[string]lipgloss.TerminalColor{
 		"published":         ColorSuccess,
 		"review":            ColorWarning,
 		"processing":        ColorPrimary,
@@ -56,7 +62,7 @@ var (
 
 	HighlightStyle = lipgloss.NewStyle().
 			Background(ColorHighlight).
-			Foreground(lipgloss.Color("#2D1810"))
+			Foreground(ColorHighlightFg)
 )
 
 // Layout styles.
@@ -82,16 +88,16 @@ var (
 
 // Tag pill style.
 func TagStyle(context string) lipgloss.Style {
-	color := ColorMuted
+	var color lipgloss.TerminalColor = ColorMuted
 	switch context {
 	case "courses":
 		color = ColorPrimary
 	case "cooking_methods":
 		color = ColorSecondary
 	case "cultural_influences":
-		color = lipgloss.Color("#7A6E9E") // muted purple
+		color = lipgloss.AdaptiveColor{Light: "#7A6E9E", Dark: "#9A8EC0"} // muted purple
 	case "dietary_restrictions":
-		color = lipgloss.Color("#4A8A8A") // teal
+		color = lipgloss.AdaptiveColor{Light: "#4A8A8A", Dark: "#5AACAC"} // teal
 	}
 	return lipgloss.NewStyle().
 		Background(color).
@@ -181,7 +187,7 @@ func renderManageBanner(pageName string, width int) string {
 				"  " +
 				lipgloss.NewStyle().
 					Bold(false).
-					Foreground(lipgloss.Color("#5C4A3C")).
+					Foreground(ColorSubtle).
 					Render(pageName),
 		)
 	title := lipgloss.NewStyle().Padding(1, 2).Render(breadcrumb)
@@ -204,7 +210,7 @@ func renderManageFooter(keys []string, width int) string {
 
 // renderManageConfirmFooter renders a yes/no footer: a bold coloured "y <action>"
 // key and a muted "n / esc cancel" hint. accent sets both the key and border colour.
-func renderManageConfirmFooter(yLabel string, accent lipgloss.Color, width int) string {
+func renderManageConfirmFooter(yLabel string, accent lipgloss.TerminalColor, width int) string {
 	yKey := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(yLabel)
 	line := "  " + yKey + "   " + MutedStyle.Render("n / esc cancel")
 	return lipgloss.NewStyle().
@@ -243,7 +249,7 @@ func viewManageResult(msg string, isErr bool, width, height int, footerStr strin
 // buildCenteredBox renders a centred rounded-border dialog with a bold title,
 // body lines, vertical fill, and footerStr below. titleColor tints the title;
 // borderColor sets the box border.
-func buildCenteredBox(title string, titleColor, borderColor lipgloss.Color, bodyLines []string, width, height int, footerStr string) string {
+func buildCenteredBox(title string, titleColor, borderColor lipgloss.TerminalColor, bodyLines []string, width, height int, footerStr string) string {
 	var sb strings.Builder
 	sb.WriteString("\n\n")
 	parts := make([]string, 0, len(bodyLines)+2)
