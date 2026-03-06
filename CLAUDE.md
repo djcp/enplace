@@ -9,6 +9,14 @@ go test ./...        # all tests must pass
 gofmt -l .           # any listed files need gofmt -w <file>
 ```
 
+If you changed anything visible in the TUI (layout, colors, new screens), regenerate the screenshots:
+
+```sh
+./screenshots/regenerate.sh
+```
+
+Requires `tmux`, `asciinema`, and `termtosvg` — the script will tell you what's missing and how to install it.
+
 ## Creating a release
 
 Cross-compilation and asset uploading are handled automatically by `.github/workflows/release.yaml` (using `wangyoucao577/go-release-action`) when a GitHub release is created. There is nothing to build locally.
@@ -18,6 +26,7 @@ Cross-compilation and asset uploading are handled automatically by `.github/work
 ```sh
 go test ./...   # all tests must pass
 gofmt -l .      # fix any listed files with gofmt -w <file>
+./screenshots/regenerate.sh   # refresh screenshots if UI changed
 ```
 
 ### Steps
