@@ -103,72 +103,41 @@ func TestManageModel_EscReturnsBack(t *testing.T) {
 	}
 }
 
-// ── manageIngredientsModel — search filter ───────────────────────────────────
+// ── manageIngredientsModel — search via DB ───────────────────────────────────
 
-func TestManageIngredientsModel_ApplyFilter_EmptyQueryReturnsAll(t *testing.T) {
-	m := newManageIngredientsModel(nil)
-	m.allIngredients = []db.IngredientWithCount{
-		{Name: "butter"},
-		{Name: "flour"},
-		{Name: "sugar"},
+func TestManageIngredientsModel_Search(t *testing.T) {
+	d := openTestDB(t)
+
+	db.FindOrCreateIngredient(d, "all-purpose flour")
+	db.FindOrCreateIngredient(d, "almond flour")
+	db.FindOrCreateIngredient(d, "butter")
+
+	m := newManageIngredientsModel(d)
+
+	// Empty query returns all.
+	if err := m.loadIngredients(); err != nil {
+		t.Fatal(err)
 	}
-	m.searchInput.SetValue("")
-	m.applyFilter()
-
 	if len(m.filtered) != 3 {
-		t.Errorf("empty query: want 3 results, got %d", len(m.filtered))
+		t.Errorf("empty query: want 3, got %d", len(m.filtered))
 	}
-}
 
-func TestManageIngredientsModel_ApplyFilter_SubstringMatch(t *testing.T) {
-	m := newManageIngredientsModel(nil)
-	m.allIngredients = []db.IngredientWithCount{
-		{Name: "all-purpose flour"},
-		{Name: "almond flour"},
-		{Name: "butter"},
-	}
+	// Substring match.
 	m.searchInput.SetValue("flour")
-	m.applyFilter()
-
+	if err := m.loadIngredients(); err != nil {
+		t.Fatal(err)
+	}
 	if len(m.filtered) != 2 {
-		t.Errorf("'flour' filter: want 2, got %d", len(m.filtered))
+		t.Errorf("'flour': want 2, got %d", len(m.filtered))
 	}
-}
 
-func TestManageIngredientsModel_ApplyFilter_CaseInsensitive(t *testing.T) {
-	m := newManageIngredientsModel(nil)
-	m.allIngredients = []db.IngredientWithCount{
-		{Name: "Butter"},
-		{Name: "sugar"},
-	}
-	m.searchInput.SetValue("BUTTER")
-	m.applyFilter()
-
-	if len(m.filtered) != 1 || m.filtered[0].Name != "Butter" {
-		t.Errorf("case-insensitive: want [Butter], got %v", m.filtered)
-	}
-}
-
-func TestManageIngredientsModel_ApplyFilter_NoMatch(t *testing.T) {
-	m := newManageIngredientsModel(nil)
-	m.allIngredients = []db.IngredientWithCount{{Name: "butter"}}
+	// No match.
 	m.searchInput.SetValue("zzzz")
-	m.applyFilter()
-
-	if len(m.filtered) != 0 {
-		t.Errorf("no-match filter: want 0, got %d", len(m.filtered))
+	if err := m.loadIngredients(); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestManageIngredientsModel_ApplyFilter_ResetsCursor(t *testing.T) {
-	m := newManageIngredientsModel(nil)
-	m.allIngredients = []db.IngredientWithCount{{Name: "a"}, {Name: "b"}}
-	m.cursor = 1
-	m.searchInput.SetValue("a")
-	m.applyFilter()
-
-	if m.cursor != 0 {
-		t.Errorf("filter should reset cursor to 0, got %d", m.cursor)
+	if len(m.filtered) != 0 {
+		t.Errorf("'zzzz': want 0, got %d", len(m.filtered))
 	}
 }
 

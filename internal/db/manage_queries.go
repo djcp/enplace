@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/djcp/enplace/internal/models"
@@ -111,16 +112,29 @@ func DeleteTag(db *sqlx.DB, id int64) error {
 
 // --- Ingredient management ---
 
-// ListIngredientsWithCount returns all ingredients with their usage counts, sorted alphabetically.
-func ListIngredientsWithCount(db *sqlx.DB) ([]IngredientWithCount, error) {
+// ListIngredientsWithCount returns ingredients with their usage counts, sorted alphabetically.
+// When search is non-empty, only ingredients whose name contains the search string (case-insensitive) are returned.
+func ListIngredientsWithCount(db *sqlx.DB, search string) ([]IngredientWithCount, error) {
 	var rows []IngredientWithCount
+	if search == "" {
+		err := db.Select(&rows, `
+			SELECT i.id, i.name,
+			       COUNT(ri.id) AS count
+			FROM ingredients i
+			LEFT JOIN recipe_ingredients ri ON ri.ingredient_id = i.id
+			GROUP BY i.id, i.name
+			ORDER BY i.name`)
+		return rows, err
+	}
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
 	err := db.Select(&rows, `
 		SELECT i.id, i.name,
 		       COUNT(ri.id) AS count
 		FROM ingredients i
 		LEFT JOIN recipe_ingredients ri ON ri.ingredient_id = i.id
+		WHERE i.name LIKE ? ESCAPE '\'
 		GROUP BY i.id, i.name
-		ORDER BY i.name`)
+		ORDER BY i.name`, "%"+escaped+"%")
 	return rows, err
 }
 

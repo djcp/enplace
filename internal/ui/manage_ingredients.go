@@ -27,9 +27,8 @@ type manageIngredientsModel struct {
 
 	phase manageIngPhase
 
-	// Full list and filtered view.
-	allIngredients []db.IngredientWithCount
-	filtered       []db.IngredientWithCount
+	// Displayed list (already filtered by current search term via SQL).
+	filtered []db.IngredientWithCount
 	cursor         int
 	offset         int
 
@@ -70,30 +69,13 @@ func newManageIngredientsModel(sqlDB *sqlx.DB) manageIngredientsModel {
 }
 
 func (m *manageIngredientsModel) loadIngredients() error {
-	ings, err := db.ListIngredientsWithCount(m.sqlDB)
+	search := strings.TrimSpace(m.searchInput.Value())
+	ings, err := db.ListIngredientsWithCount(m.sqlDB, search)
 	if err != nil {
 		return err
 	}
-	m.allIngredients = ings
-	m.applyFilter()
+	m.filtered = ings
 	return nil
-}
-
-func (m *manageIngredientsModel) applyFilter() {
-	query := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
-	if query == "" {
-		m.filtered = m.allIngredients
-		return
-	}
-	filtered := m.filtered[:0]
-	for _, ing := range m.allIngredients {
-		if strings.Contains(strings.ToLower(ing.Name), query) {
-			filtered = append(filtered, ing)
-		}
-	}
-	m.filtered = filtered
-	m.cursor = 0
-	m.offset = 0
 }
 
 func (m manageIngredientsModel) Init() tea.Cmd { return textinput.Blink }
@@ -113,7 +95,9 @@ func (m manageIngredientsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prev := m.searchInput.Value()
 			m.searchInput, cmd = m.searchInput.Update(msg)
 			if m.searchInput.Value() != prev {
-				m.applyFilter()
+				_ = m.loadIngredients()
+				m.cursor = 0
+				m.offset = 0
 			}
 		} else {
 			m.editInput, cmd = m.editInput.Update(msg)
@@ -167,7 +151,9 @@ func (m manageIngredientsModel) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.
 			m.searching = false
 			m.searchInput.Blur()
 			m.searchInput.SetValue("")
-			m.applyFilter()
+			_ = m.loadIngredients()
+			m.cursor = 0
+			m.offset = 0
 			return m, nil
 		case "enter":
 			m.searching = false
@@ -178,7 +164,9 @@ func (m manageIngredientsModel) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.
 		prev := m.searchInput.Value()
 		m.searchInput, cmd = m.searchInput.Update(msg)
 		if m.searchInput.Value() != prev {
-			m.applyFilter()
+			_ = m.loadIngredients()
+			m.cursor = 0
+			m.offset = 0
 		}
 		return m, cmd
 	}

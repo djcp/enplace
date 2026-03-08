@@ -161,7 +161,7 @@ func TestListIngredientsWithCount(t *testing.T) {
 	_ = db.InsertRecipeIngredient(d, &models.RecipeIngredient{RecipeID: r2, IngredientID: butter})
 	_ = db.InsertRecipeIngredient(d, &models.RecipeIngredient{RecipeID: r1, IngredientID: flour})
 
-	rows, err := db.ListIngredientsWithCount(d)
+	rows, err := db.ListIngredientsWithCount(d, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,6 +177,38 @@ func TestListIngredientsWithCount(t *testing.T) {
 	}
 }
 
+func TestListIngredientsWithCount_Search(t *testing.T) {
+	d := openTestDB(t)
+
+	db.FindOrCreateIngredient(d, "all-purpose flour")
+	db.FindOrCreateIngredient(d, "almond flour")
+	db.FindOrCreateIngredient(d, "butter")
+
+	rows, err := db.ListIngredientsWithCount(d, "flour")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("search 'flour': want 2 results, got %d", len(rows))
+	}
+
+	rows, err = db.ListIngredientsWithCount(d, "FLOUR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("search 'FLOUR' (case-insensitive): want 2 results, got %d", len(rows))
+	}
+
+	rows, err = db.ListIngredientsWithCount(d, "zzzz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("search 'zzzz': want 0 results, got %d", len(rows))
+	}
+}
+
 func TestRenameIngredient(t *testing.T) {
 	d := openTestDB(t)
 	id, _ := db.FindOrCreateIngredient(d, "creme fraiche")
@@ -185,7 +217,7 @@ func TestRenameIngredient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _ := db.ListIngredientsWithCount(d)
+	rows, _ := db.ListIngredientsWithCount(d, "")
 	if len(rows) != 1 || rows[0].Name != "crème fraîche" {
 		t.Errorf("expected renamed ingredient, got %v", rows)
 	}
@@ -203,7 +235,7 @@ func TestMergeIngredient_ReassignsAndDeletesSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, _ := db.ListIngredientsWithCount(d)
+	rows, _ := db.ListIngredientsWithCount(d, "")
 	if len(rows) != 1 || rows[0].Name != "double cream" {
 		t.Fatalf("expected only double cream, got %v", rows)
 	}
