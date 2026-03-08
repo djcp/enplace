@@ -31,14 +31,23 @@ gofmt -l .      # fix any listed files with gofmt -w <file>
 
 ### Steps
 
-1. **Tag and push** the tag:
+1. **Bump the version** in `internal/version/version.go` to match the release tag, commit, and push:
+
+```sh
+# edit Version = "1.0.x-alpha" in internal/version/version.go
+git add internal/version/version.go
+git commit -m "Bump version to 1.0.x-alpha"
+git push
+```
+
+2. **Tag and push** the tag:
 
 ```sh
 git tag v1.0.x-alpha
 git push origin v1.0.x-alpha
 ```
 
-2. **Create the GitHub release** — this triggers CI to build and attach binaries:
+3. **Create the GitHub release** — this triggers CI to build and attach binaries:
 
 ```sh
 gh release create v1.0.x-alpha \
