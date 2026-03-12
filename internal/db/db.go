@@ -1,14 +1,14 @@
 package db
 
 import (
+	"database/sql"
 	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -17,7 +17,9 @@ var migrationsFS embed.FS
 
 // Open opens (or creates) the SQLite database at the given path,
 // runs all pending migrations, and returns a ready-to-use *sqlx.DB.
-func Open(dbPath string) (*sqlx.DB, error) {
+// logger is passed to goose for migration output; pass goose.NopLogger()
+// to silence it.
+func Open(dbPath string, logger goose.Logger) (*sqlx.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("creating database directory: %w", err)
 	}
@@ -34,7 +36,7 @@ func Open(dbPath string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
-	if err := runMigrations(db); err != nil {
+	if err := runMigrations(db.DB, logger); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
@@ -53,36 +55,18 @@ func OpenMemory() (*sqlx.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := runMigrations(db); err != nil {
+	if err := runMigrations(db.DB, goose.NopLogger()); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return db, nil
 }
 
-func runMigrations(db *sqlx.DB) error {
-	entries, err := migrationsFS.ReadDir("migrations")
-	if err != nil {
+func runMigrations(db *sql.DB, logger goose.Logger) error {
+	goose.SetLogger(logger)
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
 		return err
 	}
-
-	// Sort by filename to ensure deterministic ordering.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		data, err := migrationsFS.ReadFile("migrations/" + entry.Name())
-		if err != nil {
-			return fmt.Errorf("reading migration %s: %w", entry.Name(), err)
-		}
-		if _, err := db.Exec(string(data)); err != nil {
-			return fmt.Errorf("applying migration %s: %w", entry.Name(), err)
-		}
-	}
-
-	return nil
+	return goose.Up(db, "migrations")
 }

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -15,6 +17,7 @@ const (
 	cfCredits configFocus = iota
 	cfAPIKey
 	cfModel
+	cfMaxLogLines
 	cfCount
 )
 
@@ -28,22 +31,26 @@ var modelOptions = []string{
 type ConfigModel struct {
 	cfg        *config.Config
 	configPath string
+	logPath    string
 	width      int
 	height     int
 
 	focus configFocus
 
-	creditsInput textinput.Model
-	apiKeyInput  textinput.Model
-	modelIdx     int // index into modelOptions
+	creditsInput     textinput.Model
+	apiKeyInput      textinput.Model
+	modelIdx         int // index into modelOptions
+	maxLogLinesInput textinput.Model
+	validationErr    string
 
 	saved bool
 }
 
-func newConfigModel(cfg *config.Config, configPath string) ConfigModel {
+func newConfigModel(cfg *config.Config, configPath, logPath string) ConfigModel {
 	m := ConfigModel{
 		cfg:        cfg,
 		configPath: configPath,
+		logPath:    logPath,
 		width:      80,
 		height:     24,
 	}
@@ -67,6 +74,11 @@ func newConfigModel(cfg *config.Config, configPath string) ConfigModel {
 		}
 	}
 
+	mll := textinput.New()
+	mll.Placeholder = strconv.Itoa(config.DefaultMaxLogLines)
+	mll.SetValue(strconv.Itoa(cfg.MaxLogLines))
+	m.maxLogLinesInput = mll
+
 	m.updateInputWidths()
 	return m
 }
@@ -81,6 +93,7 @@ func (m *ConfigModel) updateInputWidths() {
 	}
 	m.creditsInput.Width = w
 	m.apiKeyInput.Width = w
+	m.maxLogLinesInput.Width = 12 // numeric: fixed narrow width
 }
 
 // Saved returns true if the user pressed ctrl+s to save changes.
@@ -108,6 +121,8 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.creditsInput, cmd = m.creditsInput.Update(msg)
 	case cfAPIKey:
 		m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	case cfMaxLogLines:
+		m.maxLogLinesInput, cmd = m.maxLogLinesInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -152,6 +167,8 @@ func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.creditsInput, cmd = m.creditsInput.Update(msg)
 	case cfAPIKey:
 		m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	case cfMaxLogLines:
+		m.maxLogLinesInput, cmd = m.maxLogLinesInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -162,6 +179,8 @@ func (m ConfigModel) advanceFocus(dir int) ConfigModel {
 		m.creditsInput.Blur()
 	case cfAPIKey:
 		m.apiKeyInput.Blur()
+	case cfMaxLogLines:
+		m.maxLogLinesInput.Blur()
 	}
 
 	m.focus = configFocus((int(m.focus) + dir + int(cfCount)) % int(cfCount))
@@ -171,14 +190,24 @@ func (m ConfigModel) advanceFocus(dir int) ConfigModel {
 		m.creditsInput.Focus()
 	case cfAPIKey:
 		m.apiKeyInput.Focus()
+	case cfMaxLogLines:
+		m.maxLogLinesInput.Focus()
 	}
 	return m
 }
 
 func (m ConfigModel) doSave() (tea.Model, tea.Cmd) {
+	raw := strings.TrimSpace(m.maxLogLinesInput.Value())
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		m.validationErr = fmt.Sprintf("Max log lines must be a positive number (got %q)", raw)
+		return m, nil
+	}
+	m.validationErr = ""
 	m.cfg.Credits = strings.TrimSpace(m.creditsInput.Value())
 	m.cfg.AnthropicAPIKey = strings.TrimSpace(m.apiKeyInput.Value())
 	m.cfg.AnthropicModel = modelOptions[m.modelIdx]
+	m.cfg.MaxLogLines = n
 	m.saved = true
 	return m, tea.Quit
 }
@@ -234,6 +263,16 @@ func (m ConfigModel) View() string {
 	sb.WriteString("    " + modelRow + "\n")
 	sb.WriteString("\n")
 
+	// Max log lines
+	sb.WriteString("    " + fieldLabel("Max log lines", m.focus == cfMaxLogLines) + "\n")
+	sb.WriteString(inputBoxStyle(m.focus == cfMaxLogLines).Render(m.maxLogLinesInput.View()) + "\n")
+	sb.WriteString("    " + MutedStyle.Render("Log file is trimmed to this many lines on startup.") + "\n")
+	if m.validationErr != "" {
+		sb.WriteString("\n")
+		sb.WriteString(ErrorStyle.Render("    "+m.validationErr) + "\n")
+	}
+	sb.WriteString("\n")
+
 	// Read-only info
 	labelW := 12
 	infoRow := func(label, value string) string {
@@ -243,6 +282,7 @@ func (m ConfigModel) View() string {
 	}
 	sb.WriteString(infoRow("Config file", m.configPath) + "\n")
 	sb.WriteString(infoRow("Database", m.cfg.DBPath) + "\n")
+	sb.WriteString(infoRow("Log file", m.logPath) + "\n")
 
 	// Fill remaining rows so the footer stays pinned.
 	used := strings.Count(sb.String(), "\n")
@@ -299,8 +339,8 @@ func renderConfigFooter(width int) string {
 // RunConfigUI opens the interactive configuration editor.
 // If the user saves, cfg's fields are updated in-place and saved=true is returned;
 // the caller should call cfg.Save() to persist the changes to disk.
-func RunConfigUI(cfg *config.Config, configPath string) (saved bool, err error) {
-	m := newConfigModel(cfg, configPath)
+func RunConfigUI(cfg *config.Config, configPath, logPath string) (saved bool, err error) {
+	m := newConfigModel(cfg, configPath, logPath)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {

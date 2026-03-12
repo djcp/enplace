@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	DefaultModel  = "claude-haiku-4-5-20251001"
-	ConfigDirName = "enplace"
-	ConfigFile    = "config.json"
-	DBFile        = "recipes.db"
+	DefaultModel       = "claude-haiku-4-5-20251001"
+	DefaultMaxLogLines = 10_000
+	ConfigDirName      = "enplace"
+	ConfigFile         = "config.json"
+	DBFile             = "recipes.db"
+	LogFile            = "enplace.log"
 )
 
 // Config holds all persistent user settings.
@@ -22,6 +24,10 @@ type Config struct {
 	// Credits is displayed left-aligned in the footer of exported recipe files.
 	// Use it to claim authorship (e.g. "Chef Jane Smith · myrecipeblog.com").
 	Credits string `json:"credits,omitempty"`
+	// MaxLogLines caps the log file size. When the file exceeds this many lines
+	// on startup it is trimmed, keeping the most recent entries. 0 means use
+	// DefaultMaxLogLines.
+	MaxLogLines int `json:"max_log_lines,omitempty"`
 }
 
 // Load reads config from the XDG config directory.
@@ -53,6 +59,9 @@ func Load() (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	if cfg.MaxLogLines == 0 {
+		cfg.MaxLogLines = DefaultMaxLogLines
 	}
 
 	return &cfg, nil
@@ -111,7 +120,21 @@ func configDir() (string, error) {
 	return filepath.Join(base, ConfigDirName), nil
 }
 
+// LogPath returns the path to the application log file, co-located with the
+// database in the XDG data directory.
+func (c *Config) LogPath() (string, error) {
+	return defaultLogPath()
+}
+
 func defaultDBPath() (string, error) {
+	return xdgDataPath(DBFile)
+}
+
+func defaultLogPath() (string, error) {
+	return xdgDataPath(LogFile)
+}
+
+func xdgDataPath(file string) (string, error) {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -120,7 +143,7 @@ func defaultDBPath() (string, error) {
 		}
 		base = filepath.Join(home, ".local", "share")
 	}
-	return filepath.Join(base, ConfigDirName, DBFile), nil
+	return filepath.Join(base, ConfigDirName, file), nil
 }
 
 func defaultConfig() (*Config, error) {
@@ -131,5 +154,6 @@ func defaultConfig() (*Config, error) {
 	return &Config{
 		AnthropicModel: DefaultModel,
 		DBPath:         dbPath,
+		MaxLogLines:    DefaultMaxLogLines,
 	}, nil
 }

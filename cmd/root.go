@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/config"
 	"github.com/djcp/enplace/internal/db"
+	"github.com/djcp/enplace/internal/logging"
 	"github.com/djcp/enplace/internal/ui"
 	"github.com/djcp/enplace/internal/version"
 	"github.com/jmoiron/sqlx"
@@ -60,7 +61,19 @@ func initApp() {
 		}
 	}
 
-	sqlDB, err = db.Open(cfg.DBPath)
+	logPath, err := cfg.LogPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving log path: %v\n", err)
+		os.Exit(1)
+	}
+	logger, logFile, err := logging.Open(logPath, cfg.MaxLogLines)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening log file: %v\n", err)
+		os.Exit(1)
+	}
+	Root.PersistentPostRun = func(_ *cobra.Command, _ []string) { logFile.Close() }
+
+	sqlDB, err = db.Open(cfg.DBPath, logging.GooseLogger(logger))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 		os.Exit(1)
