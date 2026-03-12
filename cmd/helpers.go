@@ -14,7 +14,8 @@ import (
 // runConfigUI opens the interactive config editor and saves changes if the user confirms.
 func runConfigUI() error {
 	configPath, _ := config.FilePath()
-	saved, err := ui.RunConfigUI(cfg, configPath)
+	logPath, _ := cfg.LogPath()
+	saved, err := ui.RunConfigUI(cfg, configPath, logPath)
 	if err != nil {
 		return err
 	}

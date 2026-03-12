@@ -29,8 +29,8 @@ type manageIngredientsModel struct {
 
 	// Displayed list (already filtered by current search term via SQL).
 	filtered []db.IngredientWithCount
-	cursor         int
-	offset         int
+	cursor   int
+	offset   int
 
 	// Search.
 	searchInput textinput.Model
