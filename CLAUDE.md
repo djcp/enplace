@@ -205,6 +205,81 @@ After a destructive operation that returns the user to the list view (e.g. delet
 
 Tag and ingredient merge operations use transactions: repoint foreign-key joins (`recipe_tags` or `recipe_ingredients`) then delete the source row. Unit merge is a plain bulk `UPDATE recipe_ingredients SET unit=target WHERE unit=source` — units are inline strings, not a separate table.
 
+## Bread/dough recipes and hydration (`is_bread`, `ingredient_type`)
+
+### The `is_bread` flag
+
+`recipes.is_bread` (BOOLEAN NOT NULL DEFAULT 0, added in migration `004_is_bread.sql`) gates all bread-specific UI and calculations. Only when `r.IsBread` is true will the app:
+
+- Show the 🍞 pill on tag rows and banners (`BreadPill` in `styles.go`)
+- Show the 🍞 prefix on list rows (`renderRecipeRow` in `recipe_list.go`)
+- Compute and display hydration in the detail view (`buildRecipeBlock` in `recipe_detail.go`)
+- Show baker's percentages in the scale view (`renderBreadMetrics` in `recipe_scale.go`)
+- Emit a `Hydration:` line in all export formats (text, markdown, RTF, PDF)
+
+The flag is set by the AI extractor (see below) and is also a toggle in the edit form (`efIsBread` in `recipe_edit.go`, toggled with left/right/space). It is also a filter in the recipe list pane (`ffIsBread` in `filter_pane.go`, "recipe type" label, toggled with left/right/space).
+
+### Ingredient types: `dry`, `wet`, `starter`
+
+`recipe_ingredients.ingredient_type` is a free-form string column. Three values carry meaning for hydration:
+
+| Value | Meaning |
+|-------|---------|
+| `dry` | Flour, oats, sugar, cocoa, starches, and similar dry ingredients that form the structural base |
+| `wet` | Water, milk, eggs, oil, honey, juice, and similar liquids that hydrate the dough |
+| `starter` | Sourdough starter, levain, poolish, biga — pre-ferments that are themselves ~50% flour and 50% water |
+| `` (blank) | Salt, yeast, butter, seeds, and other ingredients that do not participate in the hydration ratio |
+
+The edit form placeholder is "wet / dry / starter / (blank)" and validation accepts exactly these four values.
+
+### Hydration calculation (`internal/scaling/scaling.go`)
+
+`BreadMetrics(r *models.Recipe) (BreadMetricsResult, error)` iterates all ingredients and accumulates:
+
+- `TotalDryGrams` — sum of weights for `ingredient_type == "dry"`; plus half the weight of any `"starter"` ingredient
+- `TotalWetGrams` — sum of weights for `ingredient_type == "wet"`; plus half the weight of any `"starter"` ingredient
+- `StarterCount` — count of starter ingredients encountered
+
+The 50/50 starter split reflects the assumption of a **100% hydration starter** (equal parts flour and water by weight). This is the most common sourdough starter maintenance ratio; it is always assumed and never configurable. A footnote is shown wherever hydration is displayed when `StarterCount > 0`.
+
+`HydrationPct = TotalWetGrams / TotalDryGrams * 100`
+
+Only ingredients with a weight unit (g, kg, oz, lb) contribute; volume-only or count-only ingredients are skipped. `BreadMetrics` returns an error if no qualifying dry ingredients are found (which prevents division by zero).
+
+### Hydration display
+
+Hydration flows through the `Renderer` interface in `internal/export/renderer.go`:
+
+```go
+type Renderer interface {
+    // ... other methods ...
+    Hydration(pct float64, starterAssumed bool)
+}
+```
+
+`RenderRecipe` calls `ren.Hydration(bm.HydrationPct, bm.StarterCount > 0)` after the ingredient block when `r.IsBread` is true and `BreadMetrics` succeeds. Each renderer formats the line appropriately:
+
+- **text**: `Hydration: 65.0%  (100% hydration starter assumed)`
+- **markdown**: `**Hydration:** 65.0%  *(100% hydration starter assumed)*`
+- **RTF**: bold terracotta line with `\par`
+- **PDF**: bold Helvetica at 11pt in terracotta
+
+The detail TUI (`buildRecipeBlock` in `recipe_detail.go`) and scale view (`renderBreadMetrics` in `recipe_scale.go`) compute hydration independently using `scaling.BreadMetrics` and render it with lipgloss styles.
+
+### AI classification of bread recipes and ingredient types
+
+The AIExtractor system prompt instructs Claude to:
+
+1. Set `is_bread: true` for any recipe that produces bread, rolls, loaves, flatbreads, pizza dough, focaccia, bagels, pretzels, brioche, croissants, or other yeasted or leavened doughs. Set `false` for all other recipes.
+
+2. Set `ingredient_type` on each ingredient to one of:
+   - `"dry"` — flour of any kind, oats, cornmeal, sugar, cocoa powder, baking powder, baking soda, starches
+   - `"wet"` — water, milk, cream, buttermilk, eggs, oil, honey, syrup, juice, beer, wine
+   - `"starter"` — sourdough starter, levain, poolish, biga, or any other pre-ferment
+   - `""` (empty string) — salt, yeast, butter, seeds, nuts, add-ins, toppings, and anything that does not hydrate the dough
+
+This means a freshly extracted bread recipe will have correct hydration immediately, without any manual editing.
+
 ## Print preview TUI (`internal/ui/recipe_print.go`)
 
 ### Phase model
