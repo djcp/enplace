@@ -23,8 +23,9 @@ Return ONLY a JSON object with these fields, and make sure the values are proper
   "cooking_time": null or integer (minutes, total time on heat including baking, simmering, resting),
   "servings": null or integer,
   "serving_units": "e.g. servings, cups, pieces" or null,
+  "is_bread": false,
   "ingredients": [
-    {"quantity": "1", "unit": "cup", "name": "flour", "descriptor": "sifted", "section": "Crust"}
+    {"quantity": "120", "unit": "g", "name": "bread flour", "descriptor": null, "section": null, "ingredient_type": "dry"}
   ],
   "cooking_methods": ["bake", "saute"],
   "cultural_influences": ["italian"],
@@ -39,6 +40,16 @@ Ingredients:
 - Quantity is a string — MAXIMUM 10 CHARACTERS. Use only the numeric amount: digits, fractions, and hyphens for ranges (e.g. "1", "1/2", "1 1/2", "2-3", "1/4-1/2"). Never include the unit or any words in this field. Use "to taste" (8 chars) when no specific amount is given. For open-ended amounts use "as needed" (9 chars).
 - Unit should be a standard abbreviation (cup, tbsp, tsp, oz, lb, g, kg, ml, L, etc.) or empty string when not applicable (e.g. "2" "large" "eggs"). Keep units concise.
 - Every ingredient in the list MUST be referenced in the directions. If the source text mentions an ingredient only in the directions but not in the ingredient list, add it to the ingredients list
+
+Bread and dough recipes — volume-to-weight conversion:
+- For bread and dough recipes, convert all ingredient quantities to grams where the weight equivalent is well-established. Use these reference values: 1 cup AP flour = 120g, 1 cup bread flour = 130g, 1 cup whole wheat flour = 120g, 1 cup rye flour = 102g, 1 cup water = 240g, 1 cup whole milk = 240g, 1 tbsp honey = 21g, 1 tbsp olive oil = 14g, 1 tbsp butter = 14g, 1 large egg = 50g, 1 tsp salt = 6g, 1 tsp instant yeast = 3g, 1 tsp active dry yeast = 4g, 1 cup rolled oats = 90g, 1 cup sourdough starter = 240g, 1 cup levain = 240g. Store the result as the quantity in grams with unit "g".
+- Leave as original units for ingredients where weight conversion is ambiguous (e.g. "2 cloves garlic", "1 sprig rosemary"). For non-bread recipes, use original units as written in the source.
+- For bread recipes, express servings as the number of loaves/rolls/buns and set serving_units accordingly (e.g. "loaves", "rolls").
+
+Bread/dough flag and ingredient type classification:
+- is_bread: set to true for any bread, roll, loaf, flatbread, pizza dough, focaccia, bagel, pretzel, brioche, croissant, or other yeasted/fermented dough recipe. Set to false for all other recipes (cakes, cookies, pies, pasta, savory dishes, etc.).
+- ingredient_type: for bread and dough recipes only (is_bread: true), classify each ingredient as one of: "dry" (any flour including nut and grain flours, rolled oats, seeds, nuts, potato flakes, grain amendments), "wet" (any liquid or fat — water, milk, eggs, oil, butter, yogurt, honey, molasses, beer), "starter" (sourdough starter, levain, poolish, biga, or any other pre-ferment — these are split 50/50 between wet and dry in hydration calculations), or "" (salt, yeast, sugar, spices — present but excluded from hydration calculation). Leave "" for all non-bread recipes.
+- Only classify ingredient_type when is_bread is true. Use "" for all ingredients in any other recipe type.
 
 Sections:
 - If a recipe has distinct ingredient groups (e.g. "Crust", "Filling", "Sauce", "Dressing", "Spice Mixture"), set the "section" field for each ingredient in that group
@@ -67,11 +78,12 @@ Return ONLY valid JSON, no JSON markdown code fences, no explanation.`
 
 // ExtractedIngredient is the AI-returned ingredient structure.
 type ExtractedIngredient struct {
-	Quantity   string  `json:"quantity"`
-	Unit       string  `json:"unit"`
-	Name       string  `json:"name"`
-	Descriptor *string `json:"descriptor"`
-	Section    *string `json:"section"`
+	Quantity       string  `json:"quantity"`
+	Unit           string  `json:"unit"`
+	Name           string  `json:"name"`
+	Descriptor     *string `json:"descriptor"`
+	Section        *string `json:"section"`
+	IngredientType *string `json:"ingredient_type"`
 }
 
 // ExtractedRecipe is the AI-returned recipe structure.
@@ -83,6 +95,7 @@ type ExtractedRecipe struct {
 	CookingTime         *int                  `json:"cooking_time"`
 	Servings            *int                  `json:"servings"`
 	ServingUnits        *string               `json:"serving_units"`
+	IsBread             bool                  `json:"is_bread"`
 	Ingredients         []ExtractedIngredient `json:"ingredients"`
 	CookingMethods      []string              `json:"cooking_methods"`
 	CulturalInfluences  []string              `json:"cultural_influences"`

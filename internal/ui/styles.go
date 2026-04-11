@@ -106,6 +106,14 @@ func TagStyle(context string) lipgloss.Style {
 		Margin(0, 1, 0, 0)
 }
 
+// BreadPill renders the 🍞 bread/dough pill shown on bread recipes.
+var BreadPill = lipgloss.NewStyle().
+	Background(ColorPrimary).
+	Foreground(lipgloss.Color("#FFFFFF")).
+	Padding(0, 1).
+	Margin(0, 1, 0, 0).
+	Render("🍞 bread/dough")
+
 // StatusBadge renders a colored status label.
 func StatusBadge(status string) string {
 	color, ok := StatusColors[status]

@@ -41,6 +41,14 @@ func (r *textRenderer) Meta(timingSummary string, _, _ *int, servings *int, serv
 	}
 }
 
+func (r *textRenderer) Hydration(pct float64, starterAssumed bool) {
+	r.sb.WriteString(fmt.Sprintf("Hydration: %.1f%%", pct))
+	if starterAssumed {
+		r.sb.WriteString("  (100% hydration starter assumed)")
+	}
+	r.sb.WriteString("\n")
+}
+
 func (r *textRenderer) Description(text string) {
 	r.sb.WriteString("\n" + text + "\n")
 }

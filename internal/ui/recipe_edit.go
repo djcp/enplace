@@ -29,6 +29,7 @@ const (
 	efCookTime
 	efServings
 	efServingUnits
+	efIsBread
 	efTagCourses
 	efTagCooking
 	efTagCultural
@@ -53,11 +54,13 @@ var editStatusOptions = []string{
 }
 
 type ingredientRow struct {
-	qty        textinput.Model
-	unit       textinput.Model
-	name       textinput.Model
+	qty  textinput.Model
+	unit textinput.Model
+	name textinput.Model
+	// descriptor, section, and ingType are edited via the detail overlay (enter key).
 	descriptor textinput.Model
 	section    textinput.Model
+	ingType    textinput.Model // "wet", "dry", "starter", or ""
 }
 
 func newIngredientRow() ingredientRow {
@@ -75,13 +78,17 @@ func newIngredientRow() ingredientRow {
 
 	desc := textinput.New()
 	desc.Placeholder = "descriptor"
-	desc.Width = 15
+	desc.Width = 28
 
 	sect := textinput.New()
 	sect.Placeholder = "section"
-	sect.Width = 13
+	sect.Width = 20
 
-	return ingredientRow{qty: qty, unit: unit, name: name, descriptor: desc, section: sect}
+	typ := textinput.New()
+	typ.Placeholder = "wet / dry / starter / (blank)"
+	typ.Width = 20
+
+	return ingredientRow{qty: qty, unit: unit, name: name, descriptor: desc, section: sect, ingType: typ}
 }
 
 func populateIngredientRow(ri models.RecipeIngredient) ingredientRow {
@@ -96,6 +103,8 @@ func populateIngredientRow(ri models.RecipeIngredient) ingredientRow {
 	row.descriptor.CursorStart()
 	row.section.SetValue(ri.Section)
 	row.section.CursorStart()
+	row.ingType.SetValue(ri.IngredientType)
+	row.ingType.CursorStart()
 	return row
 }
 
@@ -119,9 +128,16 @@ type EditModel struct {
 	// context → live text input
 	tagInputs map[string]textinput.Model
 
+	isBread bool
+
 	ingRows      []ingredientRow
 	ingRowCursor int
-	ingColCursor int // 0–4
+	ingColCursor int // 0–2 (qty, unit, name); descriptor/section/type via overlay
+
+	// Ingredient detail overlay (opened with enter on any ingredient row).
+	ingDetailOpen  bool
+	ingDetailFocus int // 0=descriptor, 1=section, 2=type
+	ingDetailErr   string
 
 	allIngNames []string
 	allUnits    []string
@@ -213,6 +229,7 @@ func newEditModel(recipe *models.Recipe, data EditData) EditModel {
 			m.servingsInput.SetValue(strconv.Itoa(*recipe.Servings))
 		}
 		m.servingUnitsInput.SetValue(recipe.ServingUnits)
+		m.isBread = recipe.IsBread
 		m.sourceURL = recipe.SourceURL
 		m.directionsInput.SetValue(recipe.Directions)
 
@@ -290,6 +307,11 @@ func (m EditModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m EditModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Ingredient detail overlay captures all keys when open.
+	if m.ingDetailOpen {
+		return m.handleIngDetailKey(msg)
+	}
+
 	// Global keys.
 	switch msg.String() {
 	case "ctrl+s":
@@ -359,6 +381,17 @@ func (m EditModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m, m.servingUnitsInput, cmd = m.handleTextInput(msg, m.servingUnitsInput)
 		return m, cmd
+
+	case efIsBread:
+		switch msg.String() {
+		case "left", "right", "h", "l", " ":
+			m.isBread = !m.isBread
+		case "tab", "down":
+			m.advanceFocus()
+		case "shift+tab", "up":
+			m.retreatFocus()
+		}
+		return m, nil
 
 	case efTagCourses, efTagCooking, efTagCultural, efTagDietary:
 		return m.handleTagKey(msg)
@@ -500,6 +533,16 @@ func (m EditModel) handleIngredientKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "enter":
+		// Open the detail overlay for descriptor, section, and type.
+		m.ingDetailOpen = true
+		m.ingDetailFocus = 0
+		m.ingDetailErr = ""
+		row := m.ingRows[m.ingRowCursor]
+		row = m.focusIngDetailField(row, 0)
+		m.ingRows[m.ingRowCursor] = row
+		return m, nil
+
 	case "tab":
 		return m.handleIngredientTab(msg)
 
@@ -524,8 +567,8 @@ func (m EditModel) handleIngredientTab(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Advance column.
-	if m.ingColCursor < 4 {
+	// Advance column (main row has 3 columns: qty=0, unit=1, name=2).
+	if m.ingColCursor < 2 {
 		m.setIngColInput(&row, m.ingColCursor, m.blurInput(newInp))
 		m.ingColCursor++
 		row = m.focusIngCol(row, m.ingColCursor)
@@ -544,7 +587,7 @@ func (m EditModel) handleIngredientTab(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m EditModel) handleIngredientShiftTab(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m EditModel) handleIngredientShiftTab(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	row := m.ingRows[m.ingRowCursor]
 	if m.ingColCursor > 0 {
 		row = m.blurIngRow(row)
@@ -554,8 +597,8 @@ func (m EditModel) handleIngredientShiftTab(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	} else if m.ingRowCursor > 0 {
 		m.ingRows[m.ingRowCursor] = m.blurIngRow(row)
 		m.ingRowCursor--
-		m.ingColCursor = 4
-		m.ingRows[m.ingRowCursor] = m.focusIngCol(m.ingRows[m.ingRowCursor], 4)
+		m.ingColCursor = 2
+		m.ingRows[m.ingRowCursor] = m.focusIngCol(m.ingRows[m.ingRowCursor], 2)
 	} else {
 		m.ingRows[m.ingRowCursor] = m.blurIngRow(row)
 		m.retreatFocus()
@@ -573,33 +616,27 @@ func (m EditModel) updateIngCell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// ingColInput returns the input for the given main-row column (0=qty, 1=unit, 2=name).
 func (m EditModel) ingColInput(row *ingredientRow, col int) textinput.Model {
 	switch col {
 	case 0:
 		return row.qty
 	case 1:
 		return row.unit
-	case 2:
-		return row.name
-	case 3:
-		return row.descriptor
 	default:
-		return row.section
+		return row.name
 	}
 }
 
+// setIngColInput sets the input for the given main-row column.
 func (m EditModel) setIngColInput(row *ingredientRow, col int, inp textinput.Model) {
 	switch col {
 	case 0:
 		row.qty = inp
 	case 1:
 		row.unit = inp
-	case 2:
-		row.name = inp
-	case 3:
-		row.descriptor = inp
 	default:
-		row.section = inp
+		row.name = inp
 	}
 }
 
@@ -609,6 +646,7 @@ func (m EditModel) blurIngRow(row ingredientRow) ingredientRow {
 	row.name.Blur()
 	row.descriptor.Blur()
 	row.section.Blur()
+	row.ingType.Blur()
 	return row
 }
 
@@ -619,12 +657,8 @@ func (m EditModel) focusIngCol(row ingredientRow, col int) ingredientRow {
 		row.qty.Focus()
 	case 1:
 		row.unit.Focus()
-	case 2:
-		row.name.Focus()
-	case 3:
-		row.descriptor.Focus()
 	default:
-		row.section.Focus()
+		row.name.Focus()
 	}
 	return row
 }
@@ -632,6 +666,148 @@ func (m EditModel) focusIngCol(row ingredientRow, col int) ingredientRow {
 func (m EditModel) blurInput(inp textinput.Model) textinput.Model {
 	inp.Blur()
 	return inp
+}
+
+// handleIngDetailKey processes keys while the ingredient detail overlay is open.
+func (m EditModel) handleIngDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	row := m.ingRows[m.ingRowCursor]
+
+	switch msg.String() {
+	case "esc":
+		// Close without error — values already live in row inputs.
+		m.ingDetailOpen = false
+		m.ingDetailErr = ""
+		row = m.blurIngRow(row)
+		row = m.focusIngCol(row, m.ingColCursor)
+		m.ingRows[m.ingRowCursor] = row
+		return m, nil
+
+	case "tab", "down":
+		if m.ingDetailFocus < 2 {
+			m.ingDetailFocus++
+			row = m.focusIngDetailField(row, m.ingDetailFocus)
+			m.ingRows[m.ingRowCursor] = row
+		} else {
+			// Last field — close the overlay.
+			if err := m.validateIngDetailType(row); err != "" {
+				m.ingDetailErr = err
+				m.ingRows[m.ingRowCursor] = row
+				return m, nil
+			}
+			m.ingDetailOpen = false
+			m.ingDetailErr = ""
+			row = m.blurIngRow(row)
+			row = m.focusIngCol(row, m.ingColCursor)
+			m.ingRows[m.ingRowCursor] = row
+		}
+		return m, nil
+
+	case "shift+tab", "up":
+		if m.ingDetailFocus > 0 {
+			m.ingDetailFocus--
+			row = m.focusIngDetailField(row, m.ingDetailFocus)
+			m.ingRows[m.ingRowCursor] = row
+		}
+		return m, nil
+
+	case "enter":
+		if err := m.validateIngDetailType(row); err != "" {
+			m.ingDetailErr = err
+			m.ingRows[m.ingRowCursor] = row
+			return m, nil
+		}
+		m.ingDetailOpen = false
+		m.ingDetailErr = ""
+		row = m.blurIngRow(row)
+		row = m.focusIngCol(row, m.ingColCursor)
+		m.ingRows[m.ingRowCursor] = row
+		return m, nil
+	}
+
+	// Forward to the focused detail input.
+	var cmd tea.Cmd
+	switch m.ingDetailFocus {
+	case 0:
+		row.descriptor, cmd = row.descriptor.Update(msg)
+	case 1:
+		row.section, cmd = row.section.Update(msg)
+	case 2:
+		row.ingType, cmd = row.ingType.Update(msg)
+		m.ingDetailErr = "" // clear error on edit
+	}
+	m.ingRows[m.ingRowCursor] = row
+	return m, cmd
+}
+
+func (m EditModel) focusIngDetailField(row ingredientRow, field int) ingredientRow {
+	row.descriptor.Blur()
+	row.section.Blur()
+	row.ingType.Blur()
+	switch field {
+	case 0:
+		row.descriptor.Focus()
+	case 1:
+		row.section.Focus()
+	case 2:
+		row.ingType.Focus()
+	}
+	return row
+}
+
+func (m EditModel) validateIngDetailType(row ingredientRow) string {
+	v := strings.TrimSpace(row.ingType.Value())
+	if v != "" && v != "wet" && v != "dry" && v != "starter" {
+		return `type must be "wet", "dry", "starter", or blank`
+	}
+	return ""
+}
+
+// renderIngDetailOverlay renders the ingredient detail overlay dialog.
+func (m EditModel) renderIngDetailOverlay() string {
+	row := m.ingRows[m.ingRowCursor]
+
+	renderDetailField := func(label string, inp textinput.Model, focused bool) string {
+		lbl := MutedStyle.Width(12).Render(label)
+		if focused {
+			return lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(ColorPrimary).
+				Padding(0, 1).
+				Width(46).
+				Render(lbl + inp.View())
+		}
+		return "  " + lbl + inp.View()
+	}
+
+	var sb strings.Builder
+	sb.WriteString(renderDetailField("Descriptor:", row.descriptor, m.ingDetailFocus == 0))
+	sb.WriteString("\n")
+	sb.WriteString(renderDetailField("Section:", row.section, m.ingDetailFocus == 1))
+	sb.WriteString("\n")
+	sb.WriteString(renderDetailField("Type:", row.ingType, m.ingDetailFocus == 2))
+
+	inner := sb.String()
+	if m.ingDetailErr != "" {
+		inner += "\n" + ErrorStyle.Render("  "+m.ingDetailErr)
+	}
+
+	name := ""
+	if m.ingRowCursor < len(m.ingRows) {
+		name = strings.TrimSpace(m.ingRows[m.ingRowCursor].name.Value())
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("Ingredient Detail")
+	if name != "" {
+		title += MutedStyle.Render(" — " + name)
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Padding(1, 2).
+		Render(title + "\n\n" + inner + "\n\n" +
+			MutedStyle.Render("tab/↓ next   shift+tab/↑ prev   enter save   esc cancel"))
+
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box)
 }
 
 func (m *EditModel) advanceFocus() {
@@ -742,6 +918,22 @@ func (m EditModel) View() string {
 		sb.WriteString(renderEditBanner(m.recipe.Name, m.width))
 	} else {
 		sb.WriteString(renderEditBanner("Edit Recipe", m.width))
+	}
+
+	// Ingredient detail overlay — rendered on top of the form.
+	if m.ingDetailOpen {
+		sb.WriteString("\n")
+		overlay := m.renderIngDetailOverlay()
+		overlayLines := strings.Count(overlay, "\n") + 1
+		sb.WriteString(overlay)
+		// Pad remaining space then show footer.
+		used := 2 + overlayLines // banner(~4 lines) + \n + overlay
+		if fill := m.height - used - 3; fill > 0 {
+			sb.WriteString(strings.Repeat("\n", fill))
+		}
+		sb.WriteString("\n")
+		sb.WriteString(renderEditFooter(m.width))
+		return sb.String()
 	}
 	sb.WriteString("\n")
 
@@ -904,6 +1096,26 @@ func (m EditModel) buildForm() (string, int) {
 		renderInlineField(m.servingUnitsInput, focused(efServingUnits)))
 	write("\n")
 
+	// Bread / dough toggle.
+	isBreadLbl := MutedStyle.Width(14).Render("Bread/dough:")
+	isBreadVal := "no"
+	if m.isBread {
+		isBreadVal = "yes"
+	}
+	isBreadValStr := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(isBreadVal)
+	isBreadContent := "  " + isBreadLbl + left + " " + isBreadValStr + " " + right
+	markFocus(efIsBread)
+	if focused(efIsBread) {
+		write(lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(ColorPrimary).
+			Padding(0, 1).
+			Render(isBreadContent))
+	} else {
+		write(isBreadContent)
+	}
+	write("\n")
+
 	// Tag sections.
 	tagFocuses := []struct {
 		f   editFocus
@@ -940,8 +1152,8 @@ func (m EditModel) buildForm() (string, int) {
 		Render(strings.Repeat("─", w-4))
 	write("  " + MutedStyle.Bold(true).Render("Ingredients") + " " + sepLine + "\n")
 	write(MutedStyle.Render(fmt.Sprintf(
-		"  %-8s  %-13s  %-23s  %-15s  %-13s",
-		"Qty", "Unit", "Name", "Descriptor", "Section",
+		"  %-8s  %-13s  %-23s  %s",
+		"Qty", "Unit", "Name", "Details (enter to edit)",
 	)) + "\n")
 
 	for i, row := range m.ingRows {
@@ -978,7 +1190,7 @@ func (m EditModel) renderTagPills(ctx string) string {
 	return sb.String()
 }
 
-func (m EditModel) renderIngRow(row ingredientRow, rowFocused bool, rowIdx int) string {
+func (m EditModel) renderIngRow(row ingredientRow, rowFocused bool, _ int) string {
 	renderCol := func(inp textinput.Model, colIdx int, width int) string {
 		isFocused := rowFocused && m.ingColCursor == colIdx
 		v := inp.View()
@@ -995,10 +1207,24 @@ func (m EditModel) renderIngRow(row ingredientRow, rowFocused bool, rowIdx int) 
 	qty := renderCol(row.qty, 0, 8)
 	unit := renderCol(row.unit, 1, 13)
 	name := renderCol(row.name, 2, 23)
-	desc := renderCol(row.descriptor, 3, 15)
-	sect := renderCol(row.section, 4, 13)
 
-	return "  " + qty + "  " + unit + "  " + name + "  " + desc + "  " + sect
+	// Read-only detail summary: show any set values from the overlay fields.
+	var details []string
+	if v := strings.TrimSpace(row.descriptor.Value()); v != "" {
+		details = append(details, v)
+	}
+	if v := strings.TrimSpace(row.section.Value()); v != "" {
+		details = append(details, "§"+v)
+	}
+	if v := strings.TrimSpace(row.ingType.Value()); v != "" {
+		details = append(details, "["+v+"]")
+	}
+	detailStr := ""
+	if len(details) > 0 {
+		detailStr = MutedStyle.Render(strings.Join(details, "  "))
+	}
+
+	return "  " + qty + "  " + unit + "  " + name + "  " + detailStr
 }
 
 // assembleRecipe reads all form inputs into a *models.Recipe.
@@ -1014,6 +1240,7 @@ func (m EditModel) assembleRecipe() (*models.Recipe, map[string][]string) {
 	r.Directions = strings.TrimSpace(m.directionsInput.Value())
 	r.SourceURL = m.sourceURL
 	r.ServingUnits = strings.TrimSpace(m.servingUnitsInput.Value())
+	r.IsBread = m.isBread
 
 	if v, err := strconv.Atoi(strings.TrimSpace(m.prepInput.Value())); err == nil && v > 0 {
 		r.PreparationTime = &v
@@ -1036,6 +1263,7 @@ func (m EditModel) assembleRecipe() (*models.Recipe, map[string][]string) {
 			Unit:           strings.TrimSpace(row.unit.Value()),
 			Descriptor:     strings.TrimSpace(row.descriptor.Value()),
 			Section:        strings.TrimSpace(row.section.Value()),
+			IngredientType: strings.TrimSpace(row.ingType.Value()),
 			Position:       i,
 		})
 	}

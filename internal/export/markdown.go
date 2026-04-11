@@ -42,6 +42,14 @@ func (r *markdownRenderer) Meta(_ string, prepMins, cookMins, servings *int, ser
 	}
 }
 
+func (r *markdownRenderer) Hydration(pct float64, starterAssumed bool) {
+	r.sb.WriteString(fmt.Sprintf("**Hydration:** %.1f%%", pct))
+	if starterAssumed {
+		r.sb.WriteString("  *(100% hydration starter assumed)*")
+	}
+	r.sb.WriteString("\n\n")
+}
+
 func (r *markdownRenderer) Description(text string) {
 	r.sb.WriteString("> " + text + "\n\n")
 }

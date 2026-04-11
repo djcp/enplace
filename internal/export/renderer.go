@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 	"github.com/djcp/enplace/internal/version"
 )
 
@@ -17,6 +18,12 @@ type Renderer interface {
 	// timingSummary is the pre-formatted "Prep X · Cook X" string (empty if
 	// neither timing field is set). prepMins and cookMins may be nil.
 	Meta(timingSummary string, prepMins, cookMins, servings *int, servingUnits string)
+
+	// Hydration is called for bread/dough recipes immediately after Meta.
+	// pct is the computed hydration percentage (e.g. 65.0 for 65%).
+	// starterAssumed is true when one or more starter ingredients were present
+	// and counted as 100% hydration (50% flour / 50% water).
+	Hydration(pct float64, starterAssumed bool)
 
 	// TagLine is called once per non-empty tag context.
 	TagLine(ctxLabel, joined string)
@@ -61,6 +68,12 @@ func RenderRecipe(r *models.Recipe, opts Options, ren Renderer) ([]byte, error) 
 	hasServ := r.Servings != nil && *r.Servings > 0
 	if timingSummary != "" || hasPrep || hasCook || hasServ {
 		ren.Meta(timingSummary, r.PreparationTime, r.CookingTime, r.Servings, r.ServingUnits)
+	}
+
+	if r.IsBread {
+		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
+			ren.Hydration(bm.HydrationPct, bm.StarterCount > 0)
+		}
 	}
 
 	if r.Description != "" {

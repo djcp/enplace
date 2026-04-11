@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
@@ -64,6 +65,17 @@ func (r *pdfRenderer) Meta(timingSummary string, _, _ *int, servings *int, servi
 	if len(parts) > 0 {
 		r.f.MultiCell(r.pw, 6, r.tr(strings.Join(parts, "  \u00b7  ")), "", "L", false)
 	}
+}
+
+func (r *pdfRenderer) Hydration(pct float64, starterAssumed bool) {
+	r.f.SetFont("Helvetica", "B", 11)
+	r.f.SetTextColor(201, 100, 66) // terracotta
+	line := fmt.Sprintf("Hydration: %.1f%%", pct)
+	if starterAssumed {
+		line += "  (100% hydration starter assumed)"
+	}
+	r.f.MultiCell(r.pw, 6, r.tr(line), "", "L", false)
+	r.f.SetTextColor(50, 50, 50)
 }
 
 func (r *pdfRenderer) Description(text string) {

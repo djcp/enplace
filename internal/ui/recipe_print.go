@@ -221,7 +221,7 @@ func (m PrintModel) View() string {
 	var sb strings.Builder
 
 	// Banner
-	sb.WriteString(renderPrintBanner(m.recipe.Name, m.width))
+	sb.WriteString(renderPrintBanner(m.recipe.Name, m.recipe.IsBread, m.width))
 	sb.WriteString("\n")
 
 	switch m.phase {
@@ -340,13 +340,18 @@ func (m PrintModel) buildPreviewLines() []string {
 	return lines
 }
 
-func renderPrintBanner(name string, width int) string {
+func renderPrintBanner(name string, isBread bool, width int) string {
 	hint := MutedStyle.Render("💾 export preview")
 	hintWidth := lipgloss.Width(hint)
 
 	maxNameLen := width - 26 - hintWidth - 2
 	if maxNameLen < 8 {
 		maxNameLen = 8
+	}
+
+	displayName := truncate(name, maxNameLen)
+	if isBread {
+		displayName += "  🍞"
 	}
 
 	breadcrumb := lipgloss.NewStyle().
@@ -359,7 +364,7 @@ func renderPrintBanner(name string, width int) string {
 				lipgloss.NewStyle().
 					Bold(false).
 					Foreground(ColorSubtle).
-					Render(truncate(name, maxNameLen)),
+					Render(displayName),
 		)
 
 	contentWidth := width - 6
