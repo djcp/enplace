@@ -16,6 +16,7 @@ type filterState struct {
 	courses         []string
 	influences      []string
 	status          string
+	isBread         bool
 	courseBuffer    string
 	influenceBuffer string
 	allCourses      []string
@@ -26,6 +27,7 @@ type filterState struct {
 	savedCourses    []string
 	savedInfluences []string
 	savedStatus     string
+	savedIsBread    bool
 
 	// active = the pane is currently open / the user is typing in it.
 	active bool
@@ -38,6 +40,7 @@ func newFilterState(initial FilterState, sd SearchData) filterState {
 		courses:       initial.Courses,
 		influences:    initial.Influences,
 		status:        initial.Status,
+		isBread:       initial.IsBread,
 		allCourses:    sd.Courses,
 		allInfluences: sd.Influences,
 	}
@@ -50,6 +53,7 @@ func (fs filterState) toPublicFilter() FilterState {
 		Courses:    fs.courses,
 		Influences: fs.influences,
 		Status:     fs.status,
+		IsBread:    fs.isBread,
 	}
 }
 
@@ -59,6 +63,7 @@ func (fs filterState) enter() filterState {
 	fs.savedCourses = append([]string(nil), fs.courses...)
 	fs.savedInfluences = append([]string(nil), fs.influences...)
 	fs.savedStatus = fs.status
+	fs.savedIsBread = fs.isBread
 	fs.active = true
 	return fs
 }
@@ -69,7 +74,9 @@ func (fs filterState) cancel() filterState {
 	fs.courses = fs.savedCourses
 	fs.influences = fs.savedInfluences
 	fs.status = fs.savedStatus
+	fs.isBread = fs.savedIsBread
 	fs.savedQuery, fs.savedCourses, fs.savedInfluences, fs.savedStatus = "", nil, nil, ""
+	fs.savedIsBread = false
 	fs.courseBuffer, fs.influenceBuffer = "", ""
 	fs.active = false
 	return fs
@@ -77,7 +84,7 @@ func (fs filterState) cancel() filterState {
 
 // hasActiveFilters returns true when any filter field is non-empty.
 func (fs filterState) hasActiveFilters() bool {
-	return fs.query != "" || len(fs.courses) > 0 || len(fs.influences) > 0 || fs.status != ""
+	return fs.query != "" || len(fs.courses) > 0 || len(fs.influences) > 0 || fs.status != "" || fs.isBread
 }
 
 // handleFilterKey processes a keypress in the filter pane.
@@ -111,13 +118,19 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 		fs.focus = (fs.focus - 1 + ffCount) % ffCount
 
 	case tea.KeyLeft:
-		if fs.focus == ffStatus {
+		switch fs.focus {
+		case ffStatus:
 			fs.status = prevStatus(fs.status)
+		case ffIsBread:
+			fs.isBread = !fs.isBread
 		}
 
 	case tea.KeyRight:
-		if fs.focus == ffStatus {
+		switch fs.focus {
+		case ffStatus:
 			fs.status = nextStatus(fs.status)
+		case ffIsBread:
+			fs.isBread = !fs.isBread
 		}
 
 	case tea.KeyBackspace, tea.KeyDelete:
@@ -144,6 +157,10 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 		}
 
 	default:
+		if msg.Type == tea.KeySpace && fs.focus == ffIsBread {
+			fs.isBread = !fs.isBread
+			break
+		}
 		var ch string
 		if msg.Type == tea.KeyRunes {
 			ch = string(msg.Runes)
@@ -204,6 +221,9 @@ func renderFilterPane(fs filterState, width, height int, scrollHint string) stri
 	sb.WriteString("\n\n")
 
 	sb.WriteString(renderFilterPaneStatus(fs.status, fs.active && fs.focus == ffStatus))
+	sb.WriteString("\n\n")
+
+	sb.WriteString(renderFilterPaneIsBread(fs.isBread, fs.active && fs.focus == ffIsBread))
 	sb.WriteString("\n\n")
 
 	sb.WriteString(renderFilterPaneSearchButton(fs.active && fs.focus == ffSearch))
@@ -322,6 +342,28 @@ func renderFilterPaneStatus(status string, focused bool) string {
 			sb.WriteString(MutedStyle.Render("all"))
 		} else {
 			sb.WriteString(StatusBadge(status))
+		}
+	}
+	return sb.String()
+}
+
+// renderFilterPaneIsBread renders the bread/dough toggle row for the filter pane.
+func renderFilterPaneIsBread(isBread bool, focused bool) string {
+	var sb strings.Builder
+	sb.WriteString(MutedStyle.Render(" recipe type: "))
+	if focused {
+		sb.WriteString(MutedStyle.Render("◀ "))
+		if isBread {
+			sb.WriteString(BreadPill)
+		} else {
+			sb.WriteString("all")
+		}
+		sb.WriteString(MutedStyle.Render(" ▶"))
+	} else {
+		if isBread {
+			sb.WriteString(BreadPill)
+		} else {
+			sb.WriteString(MutedStyle.Render("all"))
 		}
 	}
 	return sb.String()

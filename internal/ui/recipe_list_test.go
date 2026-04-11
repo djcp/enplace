@@ -256,13 +256,18 @@ func TestTypingKey_Tab_CyclesFocus(t *testing.T) {
 	}
 
 	m5 := updateList(m4, keySpecial(tea.KeyTab))
-	if m5.filterFocus != ffSearch {
-		t.Errorf("tab from ffStatus: want ffSearch, got %d", m5.filterFocus)
+	if m5.filterFocus != ffIsBread {
+		t.Errorf("tab from ffStatus: want ffIsBread, got %d", m5.filterFocus)
 	}
 
 	m6 := updateList(m5, keySpecial(tea.KeyTab))
-	if m6.filterFocus != ffText {
-		t.Errorf("tab from ffSearch should wrap to ffText, got %d", m6.filterFocus)
+	if m6.filterFocus != ffSearch {
+		t.Errorf("tab from ffIsBread: want ffSearch, got %d", m6.filterFocus)
+	}
+
+	m7 := updateList(m6, keySpecial(tea.KeyTab))
+	if m7.filterFocus != ffText {
+		t.Errorf("tab from ffSearch should wrap to ffText, got %d", m7.filterFocus)
 	}
 }
 
