@@ -3,17 +3,19 @@ package models
 // RecipeIngredient is the join model between Recipe and Ingredient,
 // carrying quantity, unit, descriptor, and section metadata.
 type RecipeIngredient struct {
-	ID           int64  `db:"id"`
-	RecipeID     int64  `db:"recipe_id"`
-	IngredientID int64  `db:"ingredient_id"`
-	Quantity     string `db:"quantity"`
-	Unit         string `db:"unit"`
-	Descriptor   string `db:"descriptor"`
-	Section      string `db:"section"`
-	Position     int    `db:"position"`
+	ID              int64    `db:"id"`
+	RecipeID        int64    `db:"recipe_id"`
+	IngredientID    int64    `db:"ingredient_id"`
+	Quantity        string   `db:"quantity"`
+	QuantityNumeric *float64 `db:"quantity_numeric"`
+	Unit            string   `db:"unit"`
+	Descriptor      string   `db:"descriptor"`
+	Section         string   `db:"section"`
+	Position        int      `db:"position"`
 
 	// Populated via JOIN when loading recipe ingredients.
 	IngredientName string `db:"ingredient_name"`
+	IngredientType string `db:"ingredient_type"`
 }
 
 // DisplayString returns a human-readable ingredient line.

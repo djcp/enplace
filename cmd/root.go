@@ -78,6 +78,11 @@ func initApp() {
 		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 		os.Exit(1)
 	}
+
+	if err := db.BackfillQuantityNumeric(sqlDB); err != nil {
+		// Non-fatal: log and continue. Scaling won't work for unparsed rows.
+		logger.Warn("quantity_numeric backfill failed", "error", err)
+	}
 }
 
 func runOnboarding(cfg *config.Config) error {
