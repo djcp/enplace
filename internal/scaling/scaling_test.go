@@ -384,6 +384,78 @@ func TestBreadMetrics_WithExclusions(t *testing.T) {
 	}
 }
 
+func TestBreadMetrics_UnitWeightG(t *testing.T) {
+	// 2 large eggs (50g each = 100g wet) + 400g flour dry → hydration 25%
+	uwg := 50.0
+	qty := 2.0
+	ings := []models.RecipeIngredient{
+		{IngredientName: "bread flour", IngredientType: "dry", QuantityNumeric: fptr(400), Unit: "g"},
+		{IngredientName: "egg", IngredientType: "wet", QuantityNumeric: &qty, Unit: "large", UnitWeightG: &uwg},
+	}
+	res, err := BreadMetrics(ings)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.TotalWetGrams != 100 {
+		t.Errorf("TotalWetGrams = %v, want 100", res.TotalWetGrams)
+	}
+	wantHydration := (100.0 / 400.0) * 100
+	if math.Abs(res.HydrationPct-wantHydration) > 0.001 {
+		t.Errorf("HydrationPct = %v, want %v", res.HydrationPct, wantHydration)
+	}
+	if res.ExcludedCount != 0 {
+		t.Errorf("ExcludedCount = %v, want 0", res.ExcludedCount)
+	}
+	// egg should appear in PerIngredient with WeightGrams=100
+	found := false
+	for _, bp := range res.PerIngredient {
+		if bp.Name == "egg" {
+			found = true
+			if bp.WeightGrams != 100 {
+				t.Errorf("egg WeightGrams = %v, want 100", bp.WeightGrams)
+			}
+		}
+	}
+	if !found {
+		t.Error("egg not found in PerIngredient")
+	}
+}
+
+func TestBreadMetrics_UnitWeightG_NoWeight(t *testing.T) {
+	// An egg without unit_weight_g set should still be excluded gracefully.
+	qty := 2.0
+	ings := []models.RecipeIngredient{
+		{IngredientName: "bread flour", IngredientType: "dry", QuantityNumeric: fptr(400), Unit: "g"},
+		{IngredientName: "egg", IngredientType: "wet", QuantityNumeric: &qty, Unit: "large", UnitWeightG: nil},
+	}
+	res, err := BreadMetrics(ings)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.ExcludedCount != 1 {
+		t.Errorf("ExcludedCount = %v, want 1", res.ExcludedCount)
+	}
+	if res.TotalWetGrams != 0 {
+		t.Errorf("TotalWetGrams = %v, want 0", res.TotalWetGrams)
+	}
+}
+
+func TestTotalWeightGrams_UnitWeightG(t *testing.T) {
+	uwg := 50.0
+	qty := 2.0
+	ings := []models.RecipeIngredient{
+		{IngredientType: "dry", QuantityNumeric: fptr(400), Unit: "g"},
+		{IngredientType: "wet", QuantityNumeric: &qty, Unit: "large", UnitWeightG: &uwg},
+	}
+	total, ok := TotalWeightGrams(ings)
+	if !ok {
+		t.Error("expected ok=true")
+	}
+	if total != 500 {
+		t.Errorf("total = %v, want 500", total)
+	}
+}
+
 func TestBreadMetrics_NoDryIngredients(t *testing.T) {
 	ings := []models.RecipeIngredient{
 		{IngredientName: "water", IngredientType: "wet", QuantityNumeric: fptr(325), Unit: "g"},

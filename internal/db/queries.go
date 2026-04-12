@@ -211,9 +211,9 @@ func FindOrCreateIngredient(db *sqlx.DB, name string) (int64, error) {
 func InsertRecipeIngredient(db *sqlx.DB, ri *models.RecipeIngredient) error {
 	_, err := db.Exec(`
 		INSERT INTO recipe_ingredients
-		  (recipe_id, ingredient_id, quantity, quantity_numeric, unit, descriptor, section, position)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ri.RecipeID, ri.IngredientID, ri.Quantity, ri.QuantityNumeric, ri.Unit, ri.Descriptor, ri.Section, ri.Position,
+		  (recipe_id, ingredient_id, quantity, quantity_numeric, unit, unit_weight_g, descriptor, section, position)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ri.RecipeID, ri.IngredientID, ri.Quantity, ri.QuantityNumeric, ri.Unit, ri.UnitWeightG, ri.Descriptor, ri.Section, ri.Position,
 	)
 	return err
 }
