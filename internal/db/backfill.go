@@ -49,3 +49,54 @@ func BackfillQuantityNumeric(sqlDB *sqlx.DB) error {
 
 	return tx.Commit()
 }
+
+// BackfillIngredientTypes migrates ingredient_type values to the five-type
+// scheme introduced alongside baker's-percentage rework:
+//
+//   - "dry" ingredients whose names match flour patterns → "flour"
+//   - "wet" ingredients whose names match fat patterns   → "fat"
+//
+// All other existing type values are left unchanged. Safe to call at every
+// startup: rows that already carry the correct type are not touched.
+func BackfillIngredientTypes(sqlDB *sqlx.DB) error {
+	// Patterns that identify flour ingredients by name.
+	flourPatterns := []string{
+		"%flour%",
+		"%semolina%",
+	}
+	// Patterns that identify fat ingredients by name (currently classified "wet").
+	fatPatterns := []string{
+		"butter",
+		"lard",
+		"shortening",
+		"margarine",
+		"cocoa butter",
+		"suet",
+	}
+
+	tx, err := sqlDB.Beginx()
+	if err != nil {
+		return fmt.Errorf("backfill ingredient types begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	for _, p := range flourPatterns {
+		if _, err := tx.Exec(
+			`UPDATE ingredients SET ingredient_type = 'flour' WHERE ingredient_type = 'dry' AND name LIKE ?`,
+			p,
+		); err != nil {
+			return fmt.Errorf("backfill flour pattern %q: %w", p, err)
+		}
+	}
+
+	for _, p := range fatPatterns {
+		if _, err := tx.Exec(
+			`UPDATE ingredients SET ingredient_type = 'fat' WHERE ingredient_type IN ('wet', '') AND name = ?`,
+			p,
+		); err != nil {
+			return fmt.Errorf("backfill fat pattern %q: %w", p, err)
+		}
+	}
+
+	return tx.Commit()
+}
