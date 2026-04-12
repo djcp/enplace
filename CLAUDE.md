@@ -219,32 +219,47 @@ Tag and ingredient merge operations use transactions: repoint foreign-key joins 
 
 The flag is set by the AI extractor (see below) and is also a toggle in the edit form (`efIsBread` in `recipe_edit.go`, toggled with left/right/space). It is also a filter in the recipe list pane (`ffIsBread` in `filter_pane.go`, "recipe type" label, toggled with left/right/space).
 
-### Ingredient types: `dry`, `wet`, `starter`
+### Ingredient types: `flour`, `dry`, `wet`, `fat`, `starter`
 
-`recipe_ingredients.ingredient_type` is a free-form string column. Three values carry meaning for hydration:
+`recipe_ingredients.ingredient_type` is stored on the canonical `ingredients` table (so all uses of the same ingredient share one classification). Five values carry meaning for hydration and baker's percentages:
 
-| Value | Meaning |
-|-------|---------|
-| `dry` | Flour, oats, sugar, cocoa, starches, and similar dry ingredients that form the structural base |
-| `wet` | Water, milk, eggs, oil, honey, juice, and similar liquids that hydrate the dough |
-| `starter` | Sourdough starter, levain, poolish, biga — pre-ferments that are themselves ~50% flour and 50% water |
-| `` (blank) | Salt, yeast, butter, seeds, and other ingredients that do not participate in the hydration ratio |
+| Value | Meaning | Hydration | Baker's % |
+|-------|---------|-----------|-----------|
+| `flour` | Any milled flour: AP, bread, whole wheat, rye, spelt, corn, almond, oat flour, semolina, etc. | dry side | 100% base |
+| `dry` | All other non-fat dry solids: oats, seeds, sugar, salt, yeast, spices, potato flakes, baking powder, cocoa powder, starches, etc. | dry side | % of flour |
+| `wet` | All liquids: water, milk, cream, buttermilk, eggs, oil, honey, syrup, juice, beer, wine, yogurt, etc. | wet side | % of flour |
+| `fat` | Saturated fats excluded from hydration: butter, lard, shortening, margarine, cocoa butter, suet | excluded | % of flour |
+| `starter` | Pre-ferments (sourdough starter, levain, poolish, biga) — split 50/50 between wet and dry | split 50/50 | % of flour |
+| `` (blank) | Truly unweighable items: herb sprigs, whole vanilla beans, bay leaves, decorative toppings | excluded | excluded |
 
-The edit form placeholder is "wet / dry / starter / (blank)" and validation accepts exactly these four values.
+The edit form placeholder is "flour / dry / wet / fat / starter / (blank)".
 
 ### Hydration calculation (`internal/scaling/scaling.go`)
 
-`BreadMetrics(r *models.Recipe) (BreadMetricsResult, error)` iterates all ingredients and accumulates:
+`BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, error)` iterates all ingredients and accumulates:
 
-- `TotalDryGrams` — sum of weights for `ingredient_type == "dry"`; plus half the weight of any `"starter"` ingredient
-- `TotalWetGrams` — sum of weights for `ingredient_type == "wet"`; plus half the weight of any `"starter"` ingredient
+- `TotalFlourGrams` — sum of weights for `ingredient_type == "flour"` — the baker's % base (= 100%)
+- `TotalDryGrams` — flour + all `"dry"` ingredients + half of any `"starter"` weight — the hydration denominator
+- `TotalWetGrams` — sum of weights for `ingredient_type == "wet"` + half of any `"starter"` weight — the hydration numerator
+- `TotalFatGrams` — sum of weights for `ingredient_type == "fat"` — excluded from hydration, included in total dough weight
 - `StarterCount` — count of starter ingredients encountered
 
 The 50/50 starter split reflects the assumption of a **100% hydration starter** (equal parts flour and water by weight). This is the most common sourdough starter maintenance ratio; it is always assumed and never configurable. A footnote is shown wherever hydration is displayed when `StarterCount > 0`.
 
-`HydrationPct = TotalWetGrams / TotalDryGrams * 100`
+```
+HydrationPct = TotalWetGrams / TotalDryGrams × 100
+```
 
-Only ingredients with a weight unit (g, kg, oz, lb) contribute; volume-only or count-only ingredients are skipped. `BreadMetrics` returns an error if no qualifying dry ingredients are found (which prevents division by zero).
+Baker's percentages use `TotalFlourGrams` as the 100% base:
+```
+IngredientPct = IngredientWeightGrams / TotalFlourGrams × 100
+```
+
+`PerIngredient` covers all typed ingredients (flour, dry, wet, fat, starter) and is only populated when `TotalFlourGrams > 0`.
+
+Only ingredients with a weight unit (g, kg, oz, lb) or a `unit_weight_g` set contribute; others are counted in `ExcludedCount`. `BreadMetrics` returns an error if `TotalDryGrams == 0` (nothing to compute hydration from).
+
+Total dough weight = `TotalDryGrams + TotalWetGrams + TotalFatGrams`.
 
 ### Hydration display
 
@@ -253,14 +268,14 @@ Hydration flows through the `Renderer` interface in `internal/export/renderer.go
 ```go
 type Renderer interface {
     // ... other methods ...
-    Hydration(pct float64, starterAssumed bool)
+    Hydration(pct float64, totalGrams int, starterAssumed bool)
 }
 ```
 
-`RenderRecipe` calls `ren.Hydration(bm.HydrationPct, bm.StarterCount > 0)` after the ingredient block when `r.IsBread` is true and `BreadMetrics` succeeds. Each renderer formats the line appropriately:
+`RenderRecipe` calls `ren.Hydration(bm.HydrationPct, totalG, bm.StarterCount > 0)` after the ingredient block when `r.IsBread` is true and `BreadMetrics` succeeds. Each renderer formats the line appropriately:
 
-- **text**: `Hydration: 65.0%  (100% hydration starter assumed)`
-- **markdown**: `**Hydration:** 65.0%  *(100% hydration starter assumed)*`
+- **text**: `Hydration: 65.0%  ·  864g total  (100% hydration starter assumed)`
+- **markdown**: `**Hydration:** 65.0%  ·  864g total  *(100% hydration starter assumed)*`
 - **RTF**: bold terracotta line with `\par`
 - **PDF**: bold Helvetica at 11pt in terracotta
 
@@ -268,17 +283,26 @@ The detail TUI (`buildRecipeBlock` in `recipe_detail.go`) and scale view (`rende
 
 ### AI classification of bread recipes and ingredient types
 
-The AIExtractor system prompt instructs Claude to:
+The AIExtractor system prompt instructs the model to:
 
 1. Set `is_bread: true` for any recipe that produces bread, rolls, loaves, flatbreads, pizza dough, focaccia, bagels, pretzels, brioche, croissants, or other yeasted or leavened doughs. Set `false` for all other recipes.
 
-2. Set `ingredient_type` on each ingredient to one of:
-   - `"dry"` — flour of any kind, oats, cornmeal, sugar, cocoa powder, baking powder, baking soda, starches
-   - `"wet"` — water, milk, cream, buttermilk, eggs, oil, honey, syrup, juice, beer, wine
-   - `"starter"` — sourdough starter, levain, poolish, biga, or any other pre-ferment
-   - `""` (empty string) — salt, yeast, butter, seeds, nuts, add-ins, toppings, and anything that does not hydrate the dough
+2. Set `ingredient_type` on each ingredient to one of the six values in the table above. The most important distinctions:
+   - Flours (any kind) → `"flour"`, not `"dry"`
+   - Butter, lard, shortening → `"fat"`, not `"wet"`
+   - Salt, yeast, sugar, seeds, spices → `"dry"` (they contribute to total dough weight and the hydration denominator)
+   - Herb sprigs, whole vanilla beans → `""` (truly unweighable)
 
-This means a freshly extracted bread recipe will have correct hydration immediately, without any manual editing.
+This means a freshly extracted bread recipe will have correct hydration and baker's percentages immediately, without any manual editing.
+
+### Backfill at startup (`internal/db/backfill.go`)
+
+`BackfillIngredientTypes` runs at every startup (alongside `BackfillQuantityNumeric`). It migrates canonical `ingredients` rows from the old three-type scheme to the new five-type scheme:
+
+- `"dry"` ingredients with flour-like names (e.g. `%flour%`, `semolina`) → `"flour"`
+- `"wet"` or `""` ingredients with fat names (butter, lard, shortening, margarine, cocoa butter, suet) → `"fat"`
+
+All other existing type values are left unchanged. The function is idempotent.
 
 ## Print preview TUI (`internal/ui/recipe_print.go`)
 
