@@ -25,7 +25,7 @@ Return ONLY a JSON object with these fields, and make sure the values are proper
   "serving_units": "e.g. servings, cups, pieces" or null,
   "is_bread": false,
   "ingredients": [
-    {"quantity": "120", "unit": "g", "name": "bread flour", "descriptor": null, "section": null, "ingredient_type": "dry", "unit_weight_g": null}
+    {"quantity": "120", "unit": "g", "name": "bread flour", "descriptor": null, "section": null, "ingredient_type": "flour", "unit_weight_g": null}
   ],
   "cooking_methods": ["bake", "saute"],
   "cultural_influences": ["italian"],
@@ -50,7 +50,13 @@ Bread and dough recipes — volume-to-weight conversion:
 
 Bread/dough flag and ingredient type classification:
 - is_bread: set to true for any bread, roll, loaf, flatbread, pizza dough, focaccia, bagel, pretzel, brioche, croissant, or other yeasted/fermented dough recipe. Set to false for all other recipes (cakes, cookies, pies, pasta, savory dishes, etc.).
-- ingredient_type: for bread and dough recipes only (is_bread: true), classify each ingredient as one of: "dry" (any flour including nut and grain flours, rolled oats, seeds, nuts, potato flakes, grain amendments), "wet" (any liquid or fat — water, milk, eggs, oil, butter, yogurt, honey, molasses, beer), "starter" (sourdough starter, levain, poolish, biga, or any other pre-ferment — these are split 50/50 between wet and dry in hydration calculations), or "" (salt, yeast, sugar, spices — present but excluded from hydration calculation). Leave "" for all non-bread recipes.
+- ingredient_type: for bread and dough recipes only (is_bread: true), classify each ingredient as exactly one of:
+  "flour"   — any flour: AP flour, bread flour, whole wheat flour, rye flour, spelt flour, einkorn flour, corn flour, almond flour, oat flour, rice flour, semolina, or any other milled grain or nut flour. Flour is the 100% base for baker's percentages.
+  "dry"     — all other dry, non-fat solids that contribute to dough structure or total dough weight: rolled oats, cornmeal, wheat bran, seeds, nuts, potato flakes, flaked grains, sugar, brown sugar, honey powder, cocoa powder, baking powder, baking soda, malt powder, salt, yeast (instant, active dry, or fresh), spices, and any other dry ingredient not covered by "flour", "fat", or "starter".
+  "wet"     — all liquids that hydrate the dough: water, milk, cream, buttermilk, yogurt, kefir, eggs, vegetable oil, olive oil, coconut oil (liquid), honey (liquid), maple syrup, molasses, beer, wine, juice, or any other liquid ingredient.
+  "fat"     — saturated fats that are excluded from the hydration ratio: butter (any form — softened, melted, cold), lard, shortening, margarine, coconut oil (solid), cocoa butter, suet. These appear in baker's percentages but do not count toward hydration.
+  "starter" — sourdough starter, levain, poolish, biga, or any other pre-ferment. These are split 50/50 between wet and dry in hydration calculations (assumed 100% hydration starter).
+  ""        — truly unweighable items with no meaningful gram equivalent: herb sprigs, whole vanilla beans, bay leaves, citrus zest strips, decorative toppings applied after baking, and anything else where a per-unit gram weight cannot reasonably be estimated.
 - Only classify ingredient_type when is_bread is true. Use "" for all ingredients in any other recipe type.
 
 Sections:
