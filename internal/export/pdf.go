@@ -2,9 +2,11 @@ package export
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 	"github.com/go-pdf/fpdf"
 )
 
@@ -66,6 +68,17 @@ func (r *pdfRenderer) Meta(timingSummary string, _, _ *int, servings *int, servi
 	}
 }
 
+func (r *pdfRenderer) Hydration(pct float64, totalGrams int, starterAssumed bool) {
+	r.f.SetFont("Helvetica", "B", 11)
+	r.f.SetTextColor(201, 100, 66) // terracotta
+	line := fmt.Sprintf("Hydration: %.1f%%  \u00b7  %dg total", pct, totalGrams)
+	if starterAssumed {
+		line += "  (100% hydration starter assumed)"
+	}
+	r.f.MultiCell(r.pw, 6, r.tr(line), "", "L", false)
+	r.f.SetTextColor(50, 50, 50)
+}
+
 func (r *pdfRenderer) Description(text string) {
 	r.f.SetFont("Helvetica", "I", 11)
 	r.f.SetTextColor(92, 74, 60) // dark warm brown
@@ -113,6 +126,58 @@ func (r *pdfRenderer) SourceURL(url string) {
 	r.f.SetFont("Helvetica", "", 9)
 	r.f.SetTextColor(142, 129, 120)
 	r.f.MultiCell(r.pw, 5, r.tr("Source: "+url), "", "L", false)
+}
+
+func (r *pdfRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
+	if len(perIngredient) == 0 {
+		return
+	}
+	r.f.Ln(4)
+	r.renderPDFSection("Baker's Percentages")
+	r.f.SetFont("Helvetica", "", 10)
+	r.f.SetTextColor(50, 50, 50)
+
+	// Three columns: name (fills remaining width), weight (20mm), percent (20mm).
+	wt := 20.0
+	pct := 20.0
+	nameW := r.pw - wt - pct
+
+	// Header row.
+	r.f.SetFont("Helvetica", "B", 9)
+	r.f.SetTextColor(142, 129, 120)
+	r.f.CellFormat(nameW, 6, r.tr("Ingredient"), "", 0, "L", false, 0, "")
+	r.f.CellFormat(wt, 6, r.tr("Weight"), "", 0, "R", false, 0, "")
+	r.f.CellFormat(pct, 6, r.tr("Baker's %"), "", 1, "R", false, 0, "")
+
+	// Data rows.
+	r.f.SetFont("Helvetica", "", 10)
+	r.f.SetTextColor(50, 50, 50)
+	for _, ing := range perIngredient {
+		name := ing.Name
+		if ing.Type == "starter" {
+			name += "*"
+		}
+		grams := int(ing.WeightGrams + 0.5)
+		r.f.CellFormat(nameW, 6, r.tr(name), "", 0, "L", false, 0, "")
+		r.f.CellFormat(wt, 6, r.tr(fmt.Sprintf("%dg", grams)), "", 0, "R", false, 0, "")
+		r.f.CellFormat(pct, 6, r.tr(fmt.Sprintf("%.1f%%", ing.Percentage)), "", 1, "R", false, 0, "")
+	}
+
+	// Hydration summary.
+	totalG := 0
+	for _, ing := range perIngredient {
+		totalG += int(ing.WeightGrams + 0.5)
+	}
+	r.f.Ln(3)
+	r.f.SetFont("Helvetica", "B", 11)
+	r.f.SetTextColor(201, 100, 66) // terracotta
+	r.f.MultiCell(r.pw, 6, r.tr(fmt.Sprintf("Hydration: %.1f%%  \u00b7  %dg total", hydrationPct, totalG)), "", "L", false)
+	if starterAssumed {
+		r.f.SetFont("Helvetica", "I", 9)
+		r.f.SetTextColor(142, 129, 120)
+		r.f.MultiCell(r.pw, 5, r.tr("* 100% hydration starter assumed"), "", "L", false)
+	}
+	r.f.SetTextColor(50, 50, 50)
 }
 
 func (r *pdfRenderer) Footer(credits, versionStr string) {

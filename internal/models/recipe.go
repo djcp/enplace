@@ -44,6 +44,8 @@ type Recipe struct {
 	CreatedAt       time.Time `db:"created_at"`
 	UpdatedAt       time.Time `db:"updated_at"`
 
+	IsBread bool `db:"is_bread"`
+
 	// Populated on load when needed.
 	Ingredients []RecipeIngredient `db:"-"`
 	Tags        []Tag              `db:"-"`

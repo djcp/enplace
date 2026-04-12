@@ -14,7 +14,8 @@ The UI adapts to your terminal's color scheme.
 - **Add by URL** — fetch any recipe page; schema.org JSON-LD is parsed first with an HTML fallback
 - **Add by paste** — pipe or interactively paste raw recipe text
 - **Add manually** — fill in a full-screen form with autocomplete for ingredients, units, and tags
-- **AI extraction** — Claude parses free-form text into a structured recipe: named ingredients with quantity, unit, descriptor, and section; numbered directions; prep/cook time; servings; and four classification tag contexts (courses, cooking methods, cultural influences, dietary restrictions)
+- **AI extraction** — Claude parses free-form text into a structured recipe: named ingredients with quantity, unit, descriptor, and section; numbered directions; prep/cook time; servings; and four classification tag contexts (courses, cooking methods, cultural influences, dietary restrictions). The AI also classifies each ingredient as `dry`, `wet`, or `starter`, and marks bread and dough recipes with an `is_bread` flag
+- **Bread/dough hydration** — recipes marked as bread or dough automatically show baker's hydration percentage (total wet weight ÷ total dry weight × 100). Sourdough starters and levains are handled specially: because a 100% hydration starter is half flour and half water by weight, its mass is split equally between wet and dry before the ratio is calculated. The hydration line appears in the detail view, the print preview, and all export formats (PDF, RTF, Markdown, plain text)
 - **Edit recipes** — open a pre-populated form from the list or detail view with `e`; supports the same autocomplete as manual entry
 - **Print preview & export** — `p` in the detail view opens a full-screen preview with options to save as PDF, RTF, Markdown, or plain text to `~/Downloads/`, or send directly to the system printer via CUPS (`lp`/`lpr`); duplicate filenames are deduplicated automatically with a `-2`, `-3`, … suffix
 - **Interactive browser** — full-screen recipe list with live `/` search and keyboard navigation
@@ -76,7 +77,7 @@ Opens a full-screen browser:
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate |
-| `/` | Filter by name or ingredient (press Enter to confirm) |
+| `/` | Open the filter pane (press Enter to confirm, Esc to cancel) |
 | `enter` | Open recipe detail |
 | `e` | Edit the selected recipe |
 | `d` | Delete (with confirmation) |
@@ -84,6 +85,8 @@ Opens a full-screen browser:
 | `m` | Open manage |
 | `h` | Clear filter and go home |
 | `q` / `esc` | Quit |
+
+The filter pane (right side) supports text search, course and cultural-influence tag filters, status, and a **Recipe type** toggle to show only bread/dough recipes. Bread recipes are marked with a 🍞 prefix in the list.
 
 When the database is empty a centered prompt appears with instructions for adding a first recipe.
 
@@ -97,6 +100,7 @@ Falls back to a plain table when stdout is not a TTY or `--query` is set.
 | `/` | Search (carries the query back to the list on `h`) |
 | `e` | Edit this recipe |
 | `p` | Open print preview / export |
+| `s` | Open ingredient scaling |
 | `a` | Add a new recipe |
 | `d` | Delete (with confirmation) |
 | `m` | Open manage |
@@ -127,6 +131,14 @@ Opened with `p` from the detail view. Shows a plain-text rendering of the recipe
 
 If the target filename already exists, a numeric suffix is appended before the extension: `chocolate-chip-cookies-2.pdf`, `chocolate-chip-cookies-3.pdf`, and so on. The full path of the saved file is shown in a confirmation overlay after each export.
 
+### Ingredient scaling
+
+Opened with `s` from the detail view. Enter a target factor (e.g. `2` to double, `0.5` to halve) or a target yield, and the view shows every ingredient scaled to the new amount.
+
+For bread and dough recipes, the scaling view also shows a **baker's percentages** table — each ingredient's weight as a percentage of total flour (dry ingredients). This makes it easy to compare a recipe to a target hydration or adjust a formula without changing the overall structure.
+
+After reviewing the scaled recipe, press `p` to open the print preview with the scaled quantities so you can export or print the adjusted version.
+
 ### Manage
 
 Opened with `m` from the list or detail view. A landing screen with five sections navigated by `↑`/`↓`/`j`/`k`; `enter` opens the selected section, `esc` returns to where you came from.
@@ -153,8 +165,9 @@ Accessible via `e` from the list or detail view, or via "Enter manually" in the 
 
 - Name, status (draft / review / published), description
 - Prep time, cook time, servings, serving units, source URL
+- **Bread/dough recipe** toggle — marks the recipe so hydration is displayed and ingredient types are shown
 - Tag pills for each context (courses, cooking methods, cultural influences, dietary restrictions)
-- Ingredient rows (quantity, unit, name, descriptor, section) with unlimited rows
+- Ingredient rows (quantity, unit, name, descriptor, section, **ingredient type**) with unlimited rows; ingredient type accepts `dry`, `wet`, `starter`, or blank (for non-hydration ingredients such as salt or yeast)
 - Directions (Markdown)
 
 **Navigation:**
@@ -263,7 +276,7 @@ The extraction pipeline has three stages, each recorded as an `ai_classifier_run
 
 1. **TextExtractor** (`internal/services/text_extractor.go`) — fetches the URL with redirect following, strips navigation/ads/scripts, extracts schema.org Recipe JSON-LD if present, otherwise falls back to `article`, `main`, `[role=main]`, and similar content selectors. Truncates to 15,000 characters before passing to the AI.
 
-2. **AIExtractor** (`internal/services/ai_extractor.go`) — sends the cleaned text to Claude with a detailed system prompt that specifies canonical ingredient naming, descriptor encoding for prep methods and ingredient alternatives, section grouping, quantity formatting (maximum 10 characters), and tag classification rules. Returns a typed `ExtractedRecipe` struct parsed from the JSON response.
+2. **AIExtractor** (`internal/services/ai_extractor.go`) — sends the cleaned text to Claude with a detailed system prompt that specifies canonical ingredient naming, descriptor encoding for prep methods and ingredient alternatives, section grouping, quantity formatting (maximum 10 characters), and tag classification rules. The prompt also instructs Claude to set `is_bread: true` for any bread, roll, loaf, flatbread, pizza dough, focaccia, bagel, pretzel, brioche, croissant, or other yeasted dough; and to classify each ingredient as `dry` (flour, oats, sugar, cocoa, and similar), `wet` (water, milk, eggs, oil, honey, and similar), or `starter` (sourdough starter, levain, poolish, biga). Returns a typed `ExtractedRecipe` struct parsed from the JSON response.
 
 3. **AIApplier** (`internal/services/ai_applier.go`) — writes the extracted data to SQLite: find-or-create for ingredients and tags, replace-on-update for ingredient lines and tag associations, and a status transition to `published`.
 

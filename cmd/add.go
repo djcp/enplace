@@ -173,7 +173,7 @@ func runAddQuiet(sourceURL string) error {
 func runDetailLoop(recipe *models.Recipe) error {
 	sd, _ := loadSearchData()
 	for {
-		goHome, goAdd, goEdit, goPrint, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
 		if err != nil {
 			return err
 		}
@@ -204,6 +204,23 @@ func runDetailLoop(recipe *models.Recipe) error {
 			}
 			if quit {
 				return nil
+			}
+			continue
+		}
+		if goScale {
+			opts := export.Options{Credits: cfg.Credits}
+			printScaled, scaledRecipe, err := ui.RunScaleUI(recipe, opts)
+			if err != nil {
+				return err
+			}
+			if printScaled && scaledRecipe != nil {
+				quit, err := ui.RunPrintUI(scaledRecipe, opts)
+				if err != nil {
+					return err
+				}
+				if quit {
+					return nil
+				}
 			}
 			continue
 		}

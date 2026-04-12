@@ -3,6 +3,7 @@ package services
 import (
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -27,6 +28,7 @@ func ApplyExtractedRecipe(sqlDB *sqlx.DB, recipeID int64, extracted *ExtractedRe
 		Status:          models.StatusReview,
 		SourceURL:       existing.SourceURL,
 		SourceText:      existing.SourceText,
+		IsBread:         extracted.IsBread,
 	}
 	if extracted.ServingUnits != nil {
 		r.ServingUnits = *extracted.ServingUnits
@@ -58,8 +60,17 @@ func ApplyExtractedRecipe(sqlDB *sqlx.DB, recipeID int64, extracted *ExtractedRe
 		if ing.Section != nil {
 			ri.Section = *ing.Section
 		}
+		if v, ok := scaling.ParseQuantity(ing.Quantity); ok {
+			ri.QuantityNumeric = &v
+		}
 		if err := db.InsertRecipeIngredient(sqlDB, ri); err != nil {
 			return err
+		}
+		// Persist ingredient_type to the canonical ingredients table.
+		if ing.IngredientType != nil && *ing.IngredientType != "" {
+			if err := db.SetIngredientType(sqlDB, ingID, *ing.IngredientType); err != nil {
+				return err
+			}
 		}
 	}
 

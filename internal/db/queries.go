@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -18,7 +19,8 @@ type RecipeFilter struct {
 	CookingMethods      []string
 	CulturalInfluences  []string
 	DietaryRestrictions []string
-	StatusFilter        string // empty = published only
+	StatusFilter        string // empty = all statuses
+	IsBread             bool   // false = all recipes; true = bread/dough only
 }
 
 // --- Recipes ---
@@ -28,10 +30,10 @@ func CreateRecipe(db *sqlx.DB, r *models.Recipe) (int64, error) {
 	now := time.Now()
 	result, err := db.Exec(`
 		INSERT INTO recipes (name, description, directions, preparation_time, cooking_time,
-		  servings, serving_units, source_url, source_text, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  servings, serving_units, is_bread, source_url, source_text, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.Name, r.Description, r.Directions, r.PreparationTime, r.CookingTime,
-		r.Servings, r.ServingUnits, r.SourceURL, r.SourceText, r.Status, now, now,
+		r.Servings, r.ServingUnits, r.IsBread, r.SourceURL, r.SourceText, r.Status, now, now,
 	)
 	if err != nil {
 		return 0, err
@@ -55,12 +57,14 @@ func UpdateRecipeFields(db *sqlx.DB, r *models.Recipe) error {
 		SET name = ?, description = ?, directions = ?,
 		    preparation_time = ?, cooking_time = ?,
 		    servings = ?, serving_units = ?,
+		    is_bread = ?,
 		    source_url = ?,
 		    status = ?, updated_at = ?
 		WHERE id = ?`,
 		r.Name, r.Description, r.Directions,
 		r.PreparationTime, r.CookingTime,
 		r.Servings, r.ServingUnits,
+		r.IsBread,
 		r.SourceURL,
 		r.Status, time.Now(), r.ID,
 	)
@@ -118,6 +122,10 @@ func ListRecipes(db *sqlx.DB, f RecipeFilter) ([]models.Recipe, error) {
 	if f.StatusFilter != "" {
 		conditions = append(conditions, "r.status = ?")
 		args = append(args, f.StatusFilter)
+	}
+
+	if f.IsBread {
+		conditions = append(conditions, "r.is_bread = 1")
 	}
 
 	if f.Query != "" {
@@ -203,9 +211,9 @@ func FindOrCreateIngredient(db *sqlx.DB, name string) (int64, error) {
 func InsertRecipeIngredient(db *sqlx.DB, ri *models.RecipeIngredient) error {
 	_, err := db.Exec(`
 		INSERT INTO recipe_ingredients
-		  (recipe_id, ingredient_id, quantity, unit, descriptor, section, position)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		ri.RecipeID, ri.IngredientID, ri.Quantity, ri.Unit, ri.Descriptor, ri.Section, ri.Position,
+		  (recipe_id, ingredient_id, quantity, quantity_numeric, unit, descriptor, section, position)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ri.RecipeID, ri.IngredientID, ri.Quantity, ri.QuantityNumeric, ri.Unit, ri.Descriptor, ri.Section, ri.Position,
 	)
 	return err
 }
@@ -220,7 +228,7 @@ func DeleteRecipeIngredients(db *sqlx.DB, recipeID int64) error {
 func GetRecipeIngredients(db *sqlx.DB, recipeID int64) ([]models.RecipeIngredient, error) {
 	var ris []models.RecipeIngredient
 	err := db.Select(&ris, `
-		SELECT ri.*, i.name AS ingredient_name
+		SELECT ri.*, i.name AS ingredient_name, i.ingredient_type AS ingredient_type
 		FROM recipe_ingredients ri
 		JOIN ingredients i ON i.id = ri.ingredient_id
 		WHERE ri.recipe_id = ?
@@ -228,6 +236,13 @@ func GetRecipeIngredients(db *sqlx.DB, recipeID int64) ([]models.RecipeIngredien
 		recipeID,
 	)
 	return ris, err
+}
+
+// SetIngredientType updates the ingredient_type field on the canonical
+// ingredients table. Called after AI extraction to persist classification.
+func SetIngredientType(db *sqlx.DB, ingredientID int64, ingredientType string) error {
+	_, err := db.Exec(`UPDATE ingredients SET ingredient_type = ? WHERE id = ?`, ingredientType, ingredientID)
+	return err
 }
 
 // --- Tags ---
@@ -338,8 +353,16 @@ func SaveRecipe(db *sqlx.DB, r *models.Recipe, tagNames map[string][]string) err
 		ing.RecipeID = r.ID
 		ing.IngredientID = ingID
 		ing.Position = pos
+		if v, ok := scaling.ParseQuantity(ing.Quantity); ok {
+			ing.QuantityNumeric = &v
+		}
 		if err := InsertRecipeIngredient(db, &ing); err != nil {
 			return err
+		}
+		if ing.IngredientType != "" {
+			if err := SetIngredientType(db, ingID, ing.IngredientType); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 )
 
 // ToText renders a recipe as plain text.
@@ -41,6 +42,14 @@ func (r *textRenderer) Meta(timingSummary string, _, _ *int, servings *int, serv
 	}
 }
 
+func (r *textRenderer) Hydration(pct float64, totalGrams int, starterAssumed bool) {
+	r.sb.WriteString(fmt.Sprintf("Hydration: %.1f%%  ·  %dg total", pct, totalGrams))
+	if starterAssumed {
+		r.sb.WriteString("  (100% hydration starter assumed)")
+	}
+	r.sb.WriteString("\n")
+}
+
 func (r *textRenderer) Description(text string) {
 	r.sb.WriteString("\n" + text + "\n")
 }
@@ -73,6 +82,47 @@ func (r *textRenderer) Directions(text string) {
 
 func (r *textRenderer) SourceURL(url string) {
 	r.sb.WriteString("\nSource: " + url + "\n")
+}
+
+func (r *textRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
+	if len(perIngredient) == 0 {
+		return
+	}
+	r.sb.WriteString("\nBAKER'S PERCENTAGES\n")
+	r.sb.WriteString("-------------------\n")
+
+	// Compute name column width.
+	maxName := 0
+	for _, ing := range perIngredient {
+		n := len([]rune(ing.Name))
+		if ing.Type == "starter" {
+			n++ // room for asterisk
+		}
+		if n > maxName {
+			maxName = n
+		}
+	}
+	if maxName < 10 {
+		maxName = 10
+	}
+
+	for _, ing := range perIngredient {
+		name := ing.Name
+		if ing.Type == "starter" {
+			name += "*"
+		}
+		grams := int(ing.WeightGrams + 0.5)
+		r.sb.WriteString(fmt.Sprintf("  %-*s  %5dg  %6.1f%%\n", maxName, name, grams, ing.Percentage))
+	}
+
+	totalG := 0
+	for _, ing := range perIngredient {
+		totalG += int(ing.WeightGrams + 0.5)
+	}
+	r.sb.WriteString(fmt.Sprintf("\n  Hydration: %.1f%%  ·  %dg total\n", hydrationPct, totalG))
+	if starterAssumed {
+		r.sb.WriteString("  * 100% hydration starter assumed\n")
+	}
 }
 
 func (r *textRenderer) Footer(credits, versionStr string) {

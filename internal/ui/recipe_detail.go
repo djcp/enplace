@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 	"github.com/muesli/termenv"
 )
 
@@ -55,6 +56,7 @@ type DetailModel struct {
 	goAdd            bool
 	goEdit           bool
 	goPrint          bool
+	goScale          bool
 	goManage         bool
 	goRetry          bool
 	confirmingDelete bool
@@ -89,6 +91,9 @@ func (m DetailModel) GoEdit() bool { return m.goEdit }
 
 // GoPrint returns true when the user pressed "p" to open print preview.
 func (m DetailModel) GoPrint() bool { return m.goPrint }
+
+// GoScale returns true when the user pressed "s" to open the scale screen.
+func (m DetailModel) GoScale() bool { return m.goScale }
 
 // GoManage returns true when the user pressed "m" to open the manage screen.
 func (m DetailModel) GoManage() bool { return m.goManage }
@@ -213,6 +218,10 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.goPrint = true
 		return m, tea.Quit
 
+	case "s":
+		m.goScale = true
+		return m, tea.Quit
+
 	case "m":
 		m.goManage = true
 		return m, tea.Quit
@@ -273,7 +282,7 @@ func (m DetailModel) View() string {
 	var sb strings.Builder
 
 	// Banner — same structure as list view, with recipe name as breadcrumb.
-	sb.WriteString(renderDetailBanner(m.recipe.Name, m.width))
+	sb.WriteString(renderDetailBanner(m.recipe.Name, m.recipe.IsBread, m.width))
 	sb.WriteString("\n")
 
 	// Delete confirmation overlay — replaces content and footer.
@@ -403,6 +412,17 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString(strings.Join(meta, MutedStyle.Render("  ·  ")))
 		sb.WriteString("\n")
 	}
+	if r.IsBread {
+		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			hydLine := fmt.Sprintf("Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
+			if bm.StarterCount > 0 {
+				sb.WriteString(MutedStyle.Render("  (100% hydration starter assumed)"))
+			}
+			sb.WriteString("\n")
+		}
+	}
 
 	// Tag pills.
 	if tags := buildTagPills(r); tags != "" {
@@ -444,11 +464,56 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString("\n")
 	}
 
+	// Baker's percentages table — bread/dough recipes only.
+	if r.IsBread {
+		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil && len(bm.PerIngredient) > 0 {
+			sb.WriteString("\n")
+			sb.WriteString(SectionLabelStyle.Render("Baker's Percentages"))
+			sb.WriteString("\n")
+
+			// Compute name column width.
+			maxName := 0
+			for _, ing := range bm.PerIngredient {
+				n := len([]rune(ing.Name))
+				if ing.Type == "starter" {
+					n++
+				}
+				if n > maxName {
+					maxName = n
+				}
+			}
+
+			for _, ing := range bm.PerIngredient {
+				name := ing.Name
+				if ing.Type == "starter" {
+					name += "*"
+				}
+				grams := int(ing.WeightGrams + 0.5)
+				line := fmt.Sprintf("  %-*s  %5dg  %6.1f%%", maxName, name, grams, ing.Percentage)
+				sb.WriteString(MutedStyle.Render(line))
+				sb.WriteString("\n")
+			}
+
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			hydLine := fmt.Sprintf("  Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
+			sb.WriteString("\n")
+			if bm.StarterCount > 0 {
+				sb.WriteString(MutedStyle.Render("  * 100% hydration starter assumed"))
+				sb.WriteString("\n")
+			}
+		}
+	}
+
 	return sb.String()
 }
 
 func buildTagPills(r *models.Recipe) string {
 	var pills []string
+	if r.IsBread {
+		pills = append(pills, BreadPill)
+	}
 	for _, ctx := range models.AllTagContexts {
 		for _, name := range r.TagsByContext(ctx) {
 			pills = append(pills, TagStyle(ctx).Render(name))
@@ -494,13 +559,18 @@ func renderMarkdown(text string, width int) string {
 }
 
 // renderDetailBanner renders the banner with an "enplace / Recipe Name" breadcrumb.
-func renderDetailBanner(name string, width int) string {
+func renderDetailBanner(name string, isBread bool, width int) string {
 	hints := MutedStyle.Render("🔍 / search") + "   " + MutedStyle.Render("⚙ m manage") + "   " + MutedStyle.Render("🏠 h home") + "   " + MutedStyle.Render("🚪 q quit")
 	hintsWidth := lipgloss.Width(hints)
 
 	maxNameLen := width - 26 - hintsWidth - 4
 	if maxNameLen < 8 {
 		maxNameLen = 8
+	}
+
+	displayName := truncate(name, maxNameLen)
+	if isBread {
+		displayName += "  🍞"
 	}
 
 	breadcrumb := lipgloss.NewStyle().
@@ -513,7 +583,7 @@ func renderDetailBanner(name string, width int) string {
 				lipgloss.NewStyle().
 					Bold(false).
 					Foreground(ColorSubtle).
-					Render(truncate(name, maxNameLen)),
+					Render(displayName),
 		)
 
 	innerWidth := width - 6 // border(2) + padding(2+2)
@@ -539,6 +609,7 @@ func renderDetailFooter(showRetry bool, width int) string {
 		"📜 ↑/↓ scroll",
 		MutedStyle.Render("🏠 h home"),
 		MutedStyle.Render("✏️ e edit"),
+		MutedStyle.Render("⚖ s scale"),
 		MutedStyle.Render("💾 p export"),
 		MutedStyle.Render("➕ a add"),
 		MutedStyle.Render("🗑 d delete"),
@@ -565,13 +636,13 @@ func min(a, b int) int {
 // RunDetailUI runs the interactive recipe detail TUI.
 // initial carries the active filter from the calling context; sd provides autocomplete suggestions.
 // Returns navigation signals, whether the user confirmed deletion, the return filter state, and any error.
-func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goManage bool, goRetry bool, deleteConfirmed bool, returnFilter FilterState, err error) {
+func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goScale bool, goManage bool, goRetry bool, deleteConfirmed bool, returnFilter FilterState, err error) {
 	m := NewDetailModel(recipe, initial, sd)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return false, false, false, false, false, false, false, FilterState{}, runErr
+		return false, false, false, false, false, false, false, false, FilterState{}, runErr
 	}
 	fm := final.(DetailModel)
-	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnFilter(), nil
+	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoScale(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnFilter(), nil
 }

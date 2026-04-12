@@ -15,6 +15,7 @@ type FilterState struct {
 	Courses    []string
 	Influences []string
 	Status     string // "" = all; else "draft", "review", "published"
+	IsBread    bool   // false = all recipes; true = bread/dough only
 }
 
 // SearchData holds autocomplete suggestions for the filter panel.
@@ -30,6 +31,7 @@ const (
 	ffCourses
 	ffInfluences
 	ffStatus
+	ffIsBread
 	ffSearch
 	ffCount // total number of filter fields
 )
@@ -49,6 +51,7 @@ type ListModel struct {
 	filterCourses    []string
 	filterInfluences []string
 	filterStatus     string // "" = all
+	filterIsBread    bool   // false = all; true = bread/dough only
 	courseBuffer     string // currently-being-typed for courses row
 	influenceBuffer  string // currently-being-typed for influences row
 
@@ -61,6 +64,7 @@ type ListModel struct {
 	savedCourses    []string
 	savedInfluences []string
 	savedStatus     string
+	savedIsBread    bool
 
 	// Set to > 0 when the user pressed Enter to view a recipe.
 	selectedID      int64
@@ -87,6 +91,7 @@ func NewListModel(recipes []models.Recipe, initial FilterState, sd SearchData) L
 		filterCourses:    initial.Courses,
 		filterInfluences: initial.Influences,
 		filterStatus:     initial.Status,
+		filterIsBread:    initial.IsBread,
 		allCourses:       sd.Courses,
 		allInfluences:    sd.Influences,
 	}
@@ -124,12 +129,13 @@ func (m ListModel) Filter() FilterState {
 		Courses:    m.filterCourses,
 		Influences: m.filterInfluences,
 		Status:     m.filterStatus,
+		IsBread:    m.filterIsBread,
 	}
 }
 
 func (m ListModel) hasActiveFilters() bool {
 	return m.query != "" || len(m.filterCourses) > 0 ||
-		len(m.filterInfluences) > 0 || m.filterStatus != ""
+		len(m.filterInfluences) > 0 || m.filterStatus != "" || m.filterIsBread
 }
 
 func (m ListModel) Init() tea.Cmd { return nil }
@@ -160,6 +166,7 @@ func (m ListModel) toFilterState() filterState {
 		courses:         m.filterCourses,
 		influences:      m.filterInfluences,
 		status:          m.filterStatus,
+		isBread:         m.filterIsBread,
 		courseBuffer:    m.courseBuffer,
 		influenceBuffer: m.influenceBuffer,
 		allCourses:      m.allCourses,
@@ -168,6 +175,7 @@ func (m ListModel) toFilterState() filterState {
 		savedCourses:    m.savedCourses,
 		savedInfluences: m.savedInfluences,
 		savedStatus:     m.savedStatus,
+		savedIsBread:    m.savedIsBread,
 		active:          m.typing,
 	}
 }
@@ -179,12 +187,14 @@ func (m ListModel) applyFilterState(fs filterState) ListModel {
 	m.filterCourses = fs.courses
 	m.filterInfluences = fs.influences
 	m.filterStatus = fs.status
+	m.filterIsBread = fs.isBread
 	m.courseBuffer = fs.courseBuffer
 	m.influenceBuffer = fs.influenceBuffer
 	m.savedQuery = fs.savedQuery
 	m.savedCourses = fs.savedCourses
 	m.savedInfluences = fs.savedInfluences
 	m.savedStatus = fs.savedStatus
+	m.savedIsBread = fs.savedIsBread
 	m.typing = fs.active
 	return m
 }
@@ -490,7 +500,11 @@ func renderColumnHeaders(width int) string {
 func renderRecipeRow(r models.Recipe, selected bool, width int) string {
 	nw := listNameWidth(width)
 
-	name := truncate(r.Name, nw)
+	nameStr := r.Name
+	if r.IsBread {
+		nameStr = "🍞 " + r.Name
+	}
+	name := truncate(nameStr, nw)
 	courses := truncate(strings.Join(r.TagsByContext(models.TagContextCourses), ", "), 14)
 	timeStr := totalTimeStr(r.PreparationTime, r.CookingTime)
 	status := StatusBadge(r.Status)

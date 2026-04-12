@@ -97,6 +97,7 @@ func runList(_ *cobra.Command, _ []string) error {
 					Courses:    filter.Courses,
 					Influences: filter.CulturalInfluences,
 					Status:     filter.StatusFilter,
+					IsBread:    filter.IsBread,
 				},
 				searchData,
 			)
@@ -113,6 +114,7 @@ func runList(_ *cobra.Command, _ []string) error {
 					Courses:            filterState.Courses,
 					CulturalInfluences: filterState.Influences,
 					StatusFilter:       filterState.Status,
+					IsBread:            filterState.IsBread,
 				}
 				continue
 			}
@@ -160,13 +162,14 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		goHome, goAdd, goEdit, goPrint, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(
 			recipe,
 			ui.FilterState{
 				Query:      filter.Query,
 				Courses:    filter.Courses,
 				Influences: filter.CulturalInfluences,
 				Status:     filter.StatusFilter,
+				IsBread:    filter.IsBread,
 			},
 			searchData,
 		)
@@ -204,6 +207,24 @@ func runList(_ *cobra.Command, _ []string) error {
 			pendingDetailID = recipe.ID
 			continue
 		}
+		if goScale {
+			opts := export.Options{Credits: cfg.Credits}
+			printScaled, scaledRecipe, err := ui.RunScaleUI(recipe, opts)
+			if err != nil {
+				return err
+			}
+			if printScaled && scaledRecipe != nil {
+				quit, err := ui.RunPrintUI(scaledRecipe, opts)
+				if err != nil {
+					return err
+				}
+				if quit {
+					return nil
+				}
+			}
+			pendingDetailID = recipe.ID
+			continue
+		}
 		if goEdit {
 			toSave, tagNames, _, err := ui.RunEditUI(recipe, editData)
 			if err != nil {
@@ -233,6 +254,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			Courses:            returnFilter.Courses,
 			CulturalInfluences: returnFilter.Influences,
 			StatusFilter:       returnFilter.Status,
+			IsBread:            returnFilter.IsBread,
 		}
 	}
 

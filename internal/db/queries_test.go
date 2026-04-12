@@ -8,6 +8,8 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+func fptr(f float64) *float64 { return &f }
+
 func openTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
@@ -617,5 +619,257 @@ func TestFailAIRun(t *testing.T) {
 
 	if err := db.FailAIRun(d, runID, "net.Error", "connection refused"); err != nil {
 		t.Fatalf("FailAIRun() error: %v", err)
+	}
+}
+
+// ---- IsBread round-trip -------------------------------------------------------
+
+func TestCreateRecipe_IsBread_RoundTrip(t *testing.T) {
+	d := openTestDB(t)
+
+	id, err := db.CreateRecipe(d, &models.Recipe{
+		Name:    "Sourdough Loaf",
+		Status:  models.StatusDraft,
+		IsBread: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateRecipe() error: %v", err)
+	}
+	got, err := db.GetRecipe(d, id)
+	if err != nil {
+		t.Fatalf("GetRecipe() error: %v", err)
+	}
+	if !got.IsBread {
+		t.Error("IsBread: got false, want true")
+	}
+}
+
+func TestCreateRecipe_IsBread_DefaultFalse(t *testing.T) {
+	d := openTestDB(t)
+
+	id, err := db.CreateRecipe(d, &models.Recipe{Name: "Pasta", Status: models.StatusDraft})
+	if err != nil {
+		t.Fatalf("CreateRecipe() error: %v", err)
+	}
+	got, err := db.GetRecipe(d, id)
+	if err != nil {
+		t.Fatalf("GetRecipe() error: %v", err)
+	}
+	if got.IsBread {
+		t.Error("IsBread: got true, want false for non-bread recipe")
+	}
+}
+
+func TestUpdateRecipeFields_IsBread_Persists(t *testing.T) {
+	d := openTestDB(t)
+
+	id, err := db.CreateRecipe(d, &models.Recipe{Name: "Focaccia", Status: models.StatusDraft})
+	if err != nil {
+		t.Fatalf("CreateRecipe() error: %v", err)
+	}
+	if err := db.UpdateRecipeFields(d, &models.Recipe{
+		ID:      id,
+		Name:    "Focaccia",
+		Status:  models.StatusReview,
+		IsBread: true,
+	}); err != nil {
+		t.Fatalf("UpdateRecipeFields() error: %v", err)
+	}
+	got, err := db.GetRecipe(d, id)
+	if err != nil {
+		t.Fatalf("GetRecipe() error: %v", err)
+	}
+	if !got.IsBread {
+		t.Error("IsBread: got false after UpdateRecipeFields with IsBread=true")
+	}
+}
+
+func TestSaveRecipe_IsBread_RoundTrip(t *testing.T) {
+	d := openTestDB(t)
+
+	r := &models.Recipe{Name: "Pizza Dough", Status: models.StatusDraft, IsBread: true}
+	if err := db.SaveRecipe(d, r, nil); err != nil {
+		t.Fatalf("SaveRecipe() error: %v", err)
+	}
+	got, err := db.GetRecipe(d, r.ID)
+	if err != nil {
+		t.Fatalf("GetRecipe() error: %v", err)
+	}
+	if !got.IsBread {
+		t.Error("IsBread: got false after SaveRecipe with IsBread=true")
+	}
+}
+
+// ---- QuantityNumeric round-trip -----------------------------------------------
+
+func TestRecipeIngredients_QuantityNumeric_RoundTrip(t *testing.T) {
+	d := openTestDB(t)
+
+	recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "Test", Status: models.StatusDraft})
+	ingID, _ := db.FindOrCreateIngredient(d, "bread flour")
+
+	v := 500.0
+	if err := db.InsertRecipeIngredient(d, &models.RecipeIngredient{
+		RecipeID:        recipeID,
+		IngredientID:    ingID,
+		Quantity:        "500",
+		QuantityNumeric: &v,
+		Unit:            "g",
+	}); err != nil {
+		t.Fatalf("InsertRecipeIngredient() error: %v", err)
+	}
+
+	ris, err := db.GetRecipeIngredients(d, recipeID)
+	if err != nil {
+		t.Fatalf("GetRecipeIngredients() error: %v", err)
+	}
+	if len(ris) != 1 {
+		t.Fatalf("expected 1 ingredient, got %d", len(ris))
+	}
+	if ris[0].QuantityNumeric == nil {
+		t.Fatal("QuantityNumeric: got nil, want 500")
+	}
+	if *ris[0].QuantityNumeric != 500 {
+		t.Errorf("QuantityNumeric: got %v, want 500", *ris[0].QuantityNumeric)
+	}
+}
+
+func TestRecipeIngredients_QuantityNumeric_NilPreserved(t *testing.T) {
+	d := openTestDB(t)
+
+	recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "Test", Status: models.StatusDraft})
+	ingID, _ := db.FindOrCreateIngredient(d, "salt")
+
+	if err := db.InsertRecipeIngredient(d, &models.RecipeIngredient{
+		RecipeID:     recipeID,
+		IngredientID: ingID,
+		Quantity:     "to taste",
+		Unit:         "",
+	}); err != nil {
+		t.Fatalf("InsertRecipeIngredient() error: %v", err)
+	}
+
+	ris, err := db.GetRecipeIngredients(d, recipeID)
+	if err != nil {
+		t.Fatalf("GetRecipeIngredients() error: %v", err)
+	}
+	if ris[0].QuantityNumeric != nil {
+		t.Errorf("QuantityNumeric: got %v, want nil", *ris[0].QuantityNumeric)
+	}
+}
+
+// ---- IngredientType round-trip ------------------------------------------------
+
+func TestSetIngredientType_AllValues(t *testing.T) {
+	for _, typ := range []string{"wet", "dry", "starter", ""} {
+		t.Run(typ, func(t *testing.T) {
+			d := openTestDB(t)
+
+			recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "R", Status: models.StatusDraft})
+			ingID, _ := db.FindOrCreateIngredient(d, "test ingredient")
+
+			if typ != "" {
+				if err := db.SetIngredientType(d, ingID, typ); err != nil {
+					t.Fatalf("SetIngredientType(%q) error: %v", typ, err)
+				}
+			}
+			if err := db.InsertRecipeIngredient(d, &models.RecipeIngredient{
+				RecipeID: recipeID, IngredientID: ingID, Quantity: "1", Unit: "g",
+			}); err != nil {
+				t.Fatalf("InsertRecipeIngredient() error: %v", err)
+			}
+
+			ris, err := db.GetRecipeIngredients(d, recipeID)
+			if err != nil {
+				t.Fatalf("GetRecipeIngredients() error: %v", err)
+			}
+			if ris[0].IngredientType != typ {
+				t.Errorf("IngredientType: got %q, want %q", ris[0].IngredientType, typ)
+			}
+		})
+	}
+}
+
+// ---- BackfillQuantityNumeric --------------------------------------------------
+
+func TestBackfillQuantityNumeric_PopulatesNullRows(t *testing.T) {
+	d := openTestDB(t)
+
+	recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "Old Recipe", Status: models.StatusDraft})
+	ingID, _ := db.FindOrCreateIngredient(d, "flour")
+
+	// Insert without quantity_numeric to simulate a pre-backfill row.
+	if _, err := d.Exec(
+		`INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit, position) VALUES (?, ?, ?, ?, ?)`,
+		recipeID, ingID, "2", "cup", 0,
+	); err != nil {
+		t.Fatalf("raw insert error: %v", err)
+	}
+
+	if err := db.BackfillQuantityNumeric(d); err != nil {
+		t.Fatalf("BackfillQuantityNumeric() error: %v", err)
+	}
+
+	ris, err := db.GetRecipeIngredients(d, recipeID)
+	if err != nil {
+		t.Fatalf("GetRecipeIngredients() error: %v", err)
+	}
+	if ris[0].QuantityNumeric == nil {
+		t.Fatal("QuantityNumeric: still nil after backfill")
+	}
+	if *ris[0].QuantityNumeric != 2.0 {
+		t.Errorf("QuantityNumeric: got %v, want 2.0", *ris[0].QuantityNumeric)
+	}
+}
+
+func TestBackfillQuantityNumeric_SkipsNonNumeric(t *testing.T) {
+	d := openTestDB(t)
+
+	recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "R", Status: models.StatusDraft})
+	ingID, _ := db.FindOrCreateIngredient(d, "salt")
+
+	if _, err := d.Exec(
+		`INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit, position) VALUES (?, ?, ?, ?, ?)`,
+		recipeID, ingID, "to taste", "", 0,
+	); err != nil {
+		t.Fatalf("raw insert error: %v", err)
+	}
+
+	if err := db.BackfillQuantityNumeric(d); err != nil {
+		t.Fatalf("BackfillQuantityNumeric() error: %v", err)
+	}
+
+	ris, err := db.GetRecipeIngredients(d, recipeID)
+	if err != nil {
+		t.Fatalf("GetRecipeIngredients() error: %v", err)
+	}
+	if ris[0].QuantityNumeric != nil {
+		t.Errorf("QuantityNumeric: got %v, want nil for non-numeric quantity", *ris[0].QuantityNumeric)
+	}
+}
+
+func TestBackfillQuantityNumeric_IsIdempotent(t *testing.T) {
+	d := openTestDB(t)
+
+	recipeID, _ := db.CreateRecipe(d, &models.Recipe{Name: "R", Status: models.StatusDraft})
+	ingID, _ := db.FindOrCreateIngredient(d, "water")
+
+	if _, err := d.Exec(
+		`INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit, position) VALUES (?, ?, ?, ?, ?)`,
+		recipeID, ingID, "300", "g", 0,
+	); err != nil {
+		t.Fatalf("raw insert error: %v", err)
+	}
+
+	if err := db.BackfillQuantityNumeric(d); err != nil {
+		t.Fatalf("first BackfillQuantityNumeric() error: %v", err)
+	}
+	if err := db.BackfillQuantityNumeric(d); err != nil {
+		t.Fatalf("second BackfillQuantityNumeric() error: %v", err)
+	}
+
+	ris, _ := db.GetRecipeIngredients(d, recipeID)
+	if *ris[0].QuantityNumeric != 300.0 {
+		t.Errorf("QuantityNumeric after second backfill: got %v, want 300", *ris[0].QuantityNumeric)
 	}
 }

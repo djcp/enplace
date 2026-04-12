@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 )
 
 // ToMarkdown renders a recipe as a Markdown document.
@@ -42,6 +43,14 @@ func (r *markdownRenderer) Meta(_ string, prepMins, cookMins, servings *int, ser
 	}
 }
 
+func (r *markdownRenderer) Hydration(pct float64, totalGrams int, starterAssumed bool) {
+	r.sb.WriteString(fmt.Sprintf("**Hydration:** %.1f%%  ·  %dg total", pct, totalGrams))
+	if starterAssumed {
+		r.sb.WriteString("  *(100% hydration starter assumed)*")
+	}
+	r.sb.WriteString("\n\n")
+}
+
 func (r *markdownRenderer) Description(text string) {
 	r.sb.WriteString("> " + text + "\n\n")
 }
@@ -72,6 +81,32 @@ func (r *markdownRenderer) Directions(text string) {
 
 func (r *markdownRenderer) SourceURL(url string) {
 	r.sb.WriteString("\n---\n\nSource: " + url + "\n")
+}
+
+func (r *markdownRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
+	if len(perIngredient) == 0 {
+		return
+	}
+	r.sb.WriteString("\n## Baker's Percentages\n\n")
+	r.sb.WriteString("| Ingredient | Weight | Baker's % |\n")
+	r.sb.WriteString("|---|---|---|\n")
+	for _, ing := range perIngredient {
+		name := ing.Name
+		if ing.Type == "starter" {
+			name += " \\*"
+		}
+		grams := int(ing.WeightGrams + 0.5)
+		r.sb.WriteString(fmt.Sprintf("| %s | %dg | %.1f%% |\n", name, grams, ing.Percentage))
+	}
+	totalG := 0
+	for _, ing := range perIngredient {
+		totalG += int(ing.WeightGrams + 0.5)
+	}
+	r.sb.WriteString(fmt.Sprintf("\n**Hydration:** %.1f%%  ·  %dg total", hydrationPct, totalG))
+	if starterAssumed {
+		r.sb.WriteString("  \n\\* 100% hydration starter assumed")
+	}
+	r.sb.WriteString("\n")
 }
 
 func (r *markdownRenderer) Footer(credits, versionStr string) {
