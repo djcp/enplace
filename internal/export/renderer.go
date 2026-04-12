@@ -79,7 +79,7 @@ func RenderRecipe(r *models.Recipe, opts Options, ren Renderer) ([]byte, error) 
 
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
 			ren.Hydration(bm.HydrationPct, totalG, bm.StarterCount > 0)
 		}
 	}

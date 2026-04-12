@@ -83,6 +83,10 @@ func initApp() {
 		// Non-fatal: log and continue. Scaling won't work for unparsed rows.
 		logger.Warn("quantity_numeric backfill failed", "error", err)
 	}
+	if err := db.BackfillIngredientTypes(sqlDB); err != nil {
+		// Non-fatal: log and continue. Existing bread recipes will re-extract cleanly.
+		logger.Warn("ingredient_type backfill failed", "error", err)
+	}
 }
 
 func runOnboarding(cfg *config.Config) error {

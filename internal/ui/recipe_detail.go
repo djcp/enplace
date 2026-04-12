@@ -414,7 +414,7 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	}
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
 			hydLine := fmt.Sprintf("Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
 			if bm.StarterCount > 0 {
@@ -494,7 +494,7 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 				sb.WriteString("\n")
 			}
 
-			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
 			hydLine := fmt.Sprintf("  Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
 			sb.WriteString("\n")
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))

@@ -329,34 +329,58 @@ func TotalWeightGrams(ingredients []models.RecipeIngredient) (float64, bool) {
 type IngredientBakerPct struct {
 	Name        string
 	WeightGrams float64
-	Percentage  float64 // of total dry weight
-	Type        string  // "wet", "dry", or "starter"
+	Percentage  float64 // of total flour weight
+	Type        string  // "flour", "dry", "wet", "starter", or "fat"
 }
 
 // BreadMetricsResult holds the computed bread hydration and per-ingredient
 // baker's percentages.
+//
+// Hydration is computed as TotalWetGrams / TotalDryGrams where TotalDryGrams
+// includes flour, all other dry ingredients (oats, seeds, salt, yeast, etc.),
+// and the dry half of any starters. Fats (butter, lard, etc.) are excluded from
+// the hydration ratio but are included in PerIngredient and TotalFatGrams so
+// callers can display total dough weight.
+//
+// Baker's percentages use TotalFlourGrams as the 100% base. PerIngredient is
+// only populated when at least one "flour" ingredient is present.
 type BreadMetricsResult struct {
-	HydrationPct  float64
-	TotalDryGrams float64
-	TotalWetGrams float64
-	StarterCount  int // number of starter ingredients (assumed 100% hydration)
-	PerIngredient []IngredientBakerPct
-	ExcludedCount int // classified ingredients skipped due to non-weight unit
+	HydrationPct    float64
+	TotalFlourGrams float64 // flour only — baker's percentage base (= 100%)
+	TotalDryGrams   float64 // flour + other dry + starter dry half — hydration denominator
+	TotalWetGrams   float64 // wet ingredients + starter wet half — hydration numerator
+	TotalFatGrams   float64 // excluded fats (butter, lard, etc.) — for total dough weight
+	StarterCount    int     // number of starter ingredients (assumed 100% hydration)
+	PerIngredient   []IngredientBakerPct
+	ExcludedCount   int // typed ingredients skipped due to non-convertible units
 }
 
 // BreadMetrics computes hydration percentage and baker's percentages for a
 // bread recipe.
 //
-//   - "dry" ingredients contribute their full weight to dry.
-//   - "wet" ingredients contribute their full weight to wet.
-//   - "starter" ingredients are assumed to be 100% hydration: half their weight
-//     is counted as dry (flour) and half as wet (water). StarterCount is
-//     incremented for each starter ingredient so callers can surface the
-//     assumption to the user.
-//   - Ingredients with "" type (salt, yeast, spices) are silently skipped.
-//   - Classified ingredients using non-weight units are counted in
-//     ExcludedCount but do not cause an error.
-//   - Returns an error when total dry weight is zero.
+// Ingredient type semantics:
+//   - "flour": any flour (AP, bread, whole wheat, rye, etc.). Contributes to
+//     TotalFlourGrams and TotalDryGrams. Used as the 100% base for baker's %.
+//   - "dry": non-flour dry ingredients (oats, seeds, sugar, salt, yeast, etc.).
+//     Contributes to TotalDryGrams.
+//   - "wet": liquids (water, milk, eggs, oil, honey, etc.).
+//     Contributes to TotalWetGrams.
+//   - "starter": pre-ferments assumed to be 100% hydration. Half contributes to
+//     TotalDryGrams, half to TotalWetGrams. StarterCount is incremented.
+//   - "fat": saturated fats (butter, lard, margarine, etc.) excluded from the
+//     hydration ratio. Contributes to TotalFatGrams only.
+//   - "": truly unweighable items (herb sprigs, whole spices). Silently skipped.
+//
+// Hydration = TotalWetGrams / TotalDryGrams × 100.
+//
+// Baker's percentages use TotalFlourGrams as the 100% base. PerIngredient
+// covers all typed ingredients (flour, dry, wet, starter, fat) expressed as a
+// percentage of flour weight. PerIngredient is empty when no flour is present.
+//
+// Ingredients whose units cannot be converted to grams are counted in
+// ExcludedCount and otherwise skipped — they do not cause an error.
+//
+// Returns an error when TotalDryGrams is zero (nothing to compute hydration from).
 func BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, error) {
 	var res BreadMetricsResult
 
@@ -371,39 +395,49 @@ func BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, er
 		}
 
 		switch ing.IngredientType {
+		case "flour":
+			res.TotalFlourGrams += g
+			res.TotalDryGrams += g
 		case "dry":
 			res.TotalDryGrams += g
 		case "wet":
 			res.TotalWetGrams += g
 		case "starter":
-			// Assume 100% hydration: 50% flour, 50% water.
+			// Assume 100% hydration: 50% flour equivalent, 50% water equivalent.
 			half := g / 2
 			res.TotalDryGrams += half
 			res.TotalWetGrams += half
 			res.StarterCount++
+		case "fat":
+			res.TotalFatGrams += g
+		default:
+			res.ExcludedCount++
 		}
 	}
 
 	if res.TotalDryGrams == 0 {
-		return res, fmt.Errorf("no dry ingredients with weight units found")
+		return res, fmt.Errorf("no flour or dry ingredients with weight units found")
 	}
 
 	res.HydrationPct = (res.TotalWetGrams / res.TotalDryGrams) * 100
 
-	for _, ing := range ingredients {
-		if ing.IngredientType == "" {
-			continue
+	// Baker's percentages require flour as the 100% base.
+	if res.TotalFlourGrams > 0 {
+		for _, ing := range ingredients {
+			if ing.IngredientType == "" {
+				continue
+			}
+			g, ok := effectiveWeightGrams(ing)
+			if !ok {
+				continue
+			}
+			res.PerIngredient = append(res.PerIngredient, IngredientBakerPct{
+				Name:        ing.IngredientName,
+				WeightGrams: g,
+				Percentage:  (g / res.TotalFlourGrams) * 100,
+				Type:        ing.IngredientType,
+			})
 		}
-		g, ok := effectiveWeightGrams(ing)
-		if !ok {
-			continue
-		}
-		res.PerIngredient = append(res.PerIngredient, IngredientBakerPct{
-			Name:        ing.IngredientName,
-			WeightGrams: g,
-			Percentage:  (g / res.TotalDryGrams) * 100,
-			Type:        ing.IngredientType,
-		})
 	}
 
 	return res, nil
