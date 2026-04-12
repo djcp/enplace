@@ -1,5 +1,8 @@
 # enplace
 
+[![Latest Release](https://img.shields.io/github/v/release/djcp/enplace?include_prereleases)](https://github.com/djcp/enplace/releases/latest)
+[![Build Status](https://github.com/djcp/enplace/actions/workflows/go.yml/badge.svg)](https://github.com/djcp/enplace/actions/workflows/go.yml)
+
 A CLI recipe manager that captures recipes from URLs or pasted text and uses Claude AI to extract structured data — ingredients, directions, timing, and classification tags — stored locally in SQLite.
 
 The UI adapts to your terminal's color scheme.
