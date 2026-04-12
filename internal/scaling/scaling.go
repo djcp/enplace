@@ -345,14 +345,14 @@ type IngredientBakerPct struct {
 // Baker's percentages use TotalFlourGrams as the 100% base. PerIngredient is
 // only populated when at least one "flour" ingredient is present.
 type BreadMetricsResult struct {
-	HydrationPct   float64
+	HydrationPct    float64
 	TotalFlourGrams float64 // flour only — baker's percentage base (= 100%)
-	TotalDryGrams  float64 // flour + other dry + starter dry half — hydration denominator
-	TotalWetGrams  float64 // wet ingredients + starter wet half — hydration numerator
-	TotalFatGrams  float64 // excluded fats (butter, lard, etc.) — for total dough weight
-	StarterCount   int     // number of starter ingredients (assumed 100% hydration)
-	PerIngredient  []IngredientBakerPct
-	ExcludedCount  int // typed ingredients skipped due to non-convertible units
+	TotalDryGrams   float64 // flour + other dry + starter dry half — hydration denominator
+	TotalWetGrams   float64 // wet ingredients + starter wet half — hydration numerator
+	TotalFatGrams   float64 // excluded fats (butter, lard, etc.) — for total dough weight
+	StarterCount    int     // number of starter ingredients (assumed 100% hydration)
+	PerIngredient   []IngredientBakerPct
+	ExcludedCount   int // typed ingredients skipped due to non-convertible units
 }
 
 // BreadMetrics computes hydration percentage and baker's percentages for a
