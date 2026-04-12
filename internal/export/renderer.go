@@ -21,9 +21,10 @@ type Renderer interface {
 
 	// Hydration is called for bread/dough recipes immediately after Meta.
 	// pct is the computed hydration percentage (e.g. 65.0 for 65%).
+	// totalGrams is the total dough weight (wet + dry, rounded to the nearest gram).
 	// starterAssumed is true when one or more starter ingredients were present
 	// and counted as 100% hydration (50% flour / 50% water).
-	Hydration(pct float64, starterAssumed bool)
+	Hydration(pct float64, totalGrams int, starterAssumed bool)
 
 	// TagLine is called once per non-empty tag context.
 	TagLine(ctxLabel, joined string)
@@ -49,6 +50,12 @@ type Renderer interface {
 	// SourceURL is called when the recipe has a source URL.
 	SourceURL(url string)
 
+	// BreadMetricsTable is called for bread/dough recipes just before the
+	// footer, with the full baker's-percentage breakdown. starterAssumed is
+	// true when at least one starter ingredient was present and counted as
+	// 100% hydration (50% flour / 50% water).
+	BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool)
+
 	// Footer is called last with the credits string (may be empty) and the
 	// application version attribution string.
 	Footer(credits, versionStr string)
@@ -72,7 +79,8 @@ func RenderRecipe(r *models.Recipe, opts Options, ren Renderer) ([]byte, error) 
 
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			ren.Hydration(bm.HydrationPct, bm.StarterCount > 0)
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			ren.Hydration(bm.HydrationPct, totalG, bm.StarterCount > 0)
 		}
 	}
 
@@ -106,6 +114,12 @@ func RenderRecipe(r *models.Recipe, opts Options, ren Renderer) ([]byte, error) 
 
 	if r.SourceURL != "" {
 		ren.SourceURL(r.SourceURL)
+	}
+
+	if r.IsBread {
+		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
+			ren.BreadMetricsTable(bm.PerIngredient, bm.HydrationPct, bm.StarterCount > 0)
+		}
 	}
 
 	ren.Footer(opts.Credits, "exported from enplace "+version.Version)

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/scaling"
 )
 
 // ToRTF renders a recipe as an RTF 1.x document (cp1252 encoding).
@@ -47,8 +48,8 @@ func (r *rtfRenderer) Meta(timingSummary string, _, _ *int, servings *int, servi
 	}
 }
 
-func (r *rtfRenderer) Hydration(pct float64, starterAssumed bool) {
-	line := fmt.Sprintf("Hydration: %.1f%%", pct)
+func (r *rtfRenderer) Hydration(pct float64, totalGrams int, starterAssumed bool) {
+	line := fmt.Sprintf("Hydration: %.1f%%  \u00b7  %dg total", pct, totalGrams)
 	if starterAssumed {
 		line += "  (100% hydration starter assumed)"
 	}
@@ -91,6 +92,38 @@ func (r *rtfRenderer) Directions(text string) {
 
 func (r *rtfRenderer) SourceURL(url string) {
 	r.sb.WriteString(fmt.Sprintf("{\\fs18\\cf3 Source: %s\\cf0\\par}\n", rtfEnc(url)))
+}
+
+func (r *rtfRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
+	if len(perIngredient) == 0 {
+		return
+	}
+	r.sb.WriteString("\\par\n")
+	r.sb.WriteString("{\\fs26\\b\\cf1 Baker\\u8217?s Percentages\\cf0\\b0\\par}\n")
+	r.sb.WriteString("\\par\n")
+	// \tqr\tx2000 right-aligns the weight at 2000 twips; \tqr\tx3000 right-aligns % at 3000.
+	for _, ing := range perIngredient {
+		name := ing.Name
+		if ing.Type == "starter" {
+			name += "*"
+		}
+		grams := int(ing.WeightGrams + 0.5)
+		line := fmt.Sprintf("%s\t%dg\t%.1f%%", name, grams, ing.Percentage)
+		r.sb.WriteString(fmt.Sprintf(
+			"{\\pard\\tqr\\tx2000\\tqr\\tx3000\\fs20 %s\\par}\n",
+			rtfEnc(line),
+		))
+	}
+	totalG := 0
+	for _, ing := range perIngredient {
+		totalG += int(ing.WeightGrams + 0.5)
+	}
+	r.sb.WriteString("\\par\n")
+	hydLine := fmt.Sprintf("Hydration: %.1f%%  \u00b7  %dg total", hydrationPct, totalG)
+	r.sb.WriteString(fmt.Sprintf("{\\fs20\\b\\cf1 %s\\cf0\\b0\\par}\n", rtfEnc(hydLine)))
+	if starterAssumed {
+		r.sb.WriteString("{\\fs18\\cf3 * 100% hydration starter assumed\\cf0\\par}\n")
+	}
 }
 
 func (r *rtfRenderer) Footer(credits, versionStr string) {

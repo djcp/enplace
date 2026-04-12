@@ -40,7 +40,6 @@ type ScaleModel struct {
 	// View phase.
 	scaledRecipe *models.Recipe // full recipe copy: scaled ings + directions note
 	scaleFactor  float64
-	breadMetrics *scaling.BreadMetricsResult
 	lines        []string // pre-rendered content lines for scrolling
 	scroll       int
 
@@ -60,7 +59,10 @@ func newScaleModel(recipe *models.Recipe, opts export.Options) ScaleModel {
 	wi.Placeholder = "grams"
 	wi.Width = 18
 
-	_, canWeight := scaling.TotalWeightGrams(recipe.Ingredients)
+	canUseWeight := false
+	if recipe.IsBread {
+		_, canUseWeight = scaling.TotalWeightGrams(recipe.Ingredients)
+	}
 
 	return ScaleModel{
 		recipe:       recipe,
@@ -68,7 +70,7 @@ func newScaleModel(recipe *models.Recipe, opts export.Options) ScaleModel {
 		phase:        scalePhaseInput,
 		factorInput:  fi,
 		weightInput:  wi,
-		canUseWeight: canWeight,
+		canUseWeight: canUseWeight,
 		width:        80,
 		height:       24,
 	}
@@ -141,11 +143,6 @@ func (m ScaleModel) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scaledRecipe = makeScaledRecipeCopy(m.recipe, scaled, factor)
 		m.phase = scalePhaseView
 		m.scroll = 0
-		if m.recipe.IsBread {
-			if bm, err := scaling.BreadMetrics(scaled); err == nil {
-				m.breadMetrics = &bm
-			}
-		}
 		m.lines = m.buildScaledLines()
 		return m, nil
 	}
@@ -167,7 +164,6 @@ func (m ScaleModel) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.phase = scalePhaseInput
 		m.scaledRecipe = nil
-		m.breadMetrics = nil
 		m.lines = nil
 		return m, nil
 	case "p":
@@ -255,49 +251,10 @@ func (m ScaleModel) buildScaledLines() []string {
 
 	var sb strings.Builder
 
-	// Bread metrics block (hydration + per-ingredient baker's percentages).
-	if m.breadMetrics != nil {
-		sb.WriteString(m.renderBreadMetrics(contentWidth))
-	}
-
 	// Full recipe rendered identically to the detail view.
 	sb.WriteString(buildRecipeBlock(m.scaledRecipe, contentWidth))
 
 	return strings.Split(sb.String(), "\n")
-}
-
-// renderBreadMetrics builds the bread-metrics summary block shown above the
-// recipe content in the view phase.
-func (m ScaleModel) renderBreadMetrics(width int) string {
-	bm := m.breadMetrics
-	var sb strings.Builder
-
-	hydStr := fmt.Sprintf("%.1f%% hydration", bm.HydrationPct)
-	totalStr := fmt.Sprintf("%.0fg total", bm.TotalDryGrams+bm.TotalWetGrams)
-	header := SectionLabelStyle.Render("Bread Metrics") +
-		"  " + MutedStyle.Render(hydStr+"  ·  "+totalStr)
-	if bm.ExcludedCount > 0 {
-		header += "  " + MutedStyle.Render(fmt.Sprintf("(%d excluded)", bm.ExcludedCount))
-	}
-	sb.WriteString(header + "\n")
-
-	for _, bp := range bm.PerIngredient {
-		typeTag := ""
-		switch bp.Type {
-		case "wet":
-			typeTag = MutedStyle.Render(" [wet]")
-		case "starter":
-			typeTag = MutedStyle.Render(" [starter]")
-		}
-		name := lipgloss.NewStyle().Width(width - 14).Render(bp.Name)
-		pctStr := MutedStyle.Render(fmt.Sprintf("%6.1f%%", bp.Percentage))
-		sb.WriteString(MutedStyle.Render("  · ") + name + pctStr + typeTag + "\n")
-	}
-	if bm.StarterCount > 0 {
-		sb.WriteString(MutedStyle.Render("  * starter counted as 50% flour / 50% water (100% hydration assumed)\n"))
-	}
-	sb.WriteString("\n")
-	return sb.String()
 }
 
 func (m ScaleModel) View() string {
@@ -315,8 +272,8 @@ func (m ScaleModel) View() string {
 		return sb.String()
 	}
 
-	// View phase: banner shows factor + optional bread metrics summary.
-	sb.WriteString(renderScaleViewBanner(m.recipe.Name, m.recipe.IsBread, m.scaleFactor, m.breadMetrics, m.width))
+	// View phase: banner shows scale factor.
+	sb.WriteString(renderScaleViewBanner(m.recipe.Name, m.recipe.IsBread, m.scaleFactor, m.width))
 	sb.WriteString("\n")
 
 	lines := m.lines
@@ -366,17 +323,19 @@ func (m ScaleModel) renderInputPhase() string {
 	sb.WriteString(renderInput("Scale factor:", m.factorInput, m.inputFocus == 0, ""))
 	sb.WriteString("\n\n")
 
-	weightLabel := "Target dough weight (g):"
-	if m.canUseWeight {
-		sb.WriteString(renderInput(weightLabel, m.weightInput, m.inputFocus == 1, ""))
-		sb.WriteString("\n")
-		current, _ := scaling.TotalWeightGrams(m.recipe.Ingredients)
-		sb.WriteString(MutedStyle.Render(fmt.Sprintf("  Current dough weight: %.0fg", current)))
-		sb.WriteString("\n")
-	} else {
-		note := "(requires all wet/dry ingredients in weight units)"
-		sb.WriteString(MutedStyle.Render("  " + MutedStyle.Width(26).Render(weightLabel) + "—  " + note))
-		sb.WriteString("\n")
+	if m.recipe.IsBread {
+		weightLabel := "Target dough weight (g):"
+		if m.canUseWeight {
+			sb.WriteString(renderInput(weightLabel, m.weightInput, m.inputFocus == 1, ""))
+			sb.WriteString("\n")
+			current, _ := scaling.TotalWeightGrams(m.recipe.Ingredients)
+			sb.WriteString(MutedStyle.Render(fmt.Sprintf("  Current dough weight: %.0fg", current)))
+			sb.WriteString("\n")
+		} else {
+			note := "(requires all wet/dry ingredients in weight units)"
+			sb.WriteString(MutedStyle.Render("  " + MutedStyle.Width(26).Render(weightLabel) + "—  " + note))
+			sb.WriteString("\n")
+		}
 	}
 
 	if m.inputErr != "" {
@@ -417,19 +376,13 @@ func renderScaleInputBanner(recipeName string, isBread bool, width int) string {
 		Render(title)
 }
 
-func renderScaleViewBanner(recipeName string, isBread bool, factor float64, bm *scaling.BreadMetricsResult, width int) string {
+func renderScaleViewBanner(recipeName string, isBread bool, factor float64, width int) string {
 	factorLabel := "×" + formatFactor(factor)
 	displayName := truncate(recipeName, width-30)
 	if isBread {
 		displayName += "  🍞"
 	}
 	subtitle := displayName + " / Scale " + factorLabel
-
-	if bm != nil {
-		hydStr := fmt.Sprintf("%.1f%% hydration", bm.HydrationPct)
-		totalStr := fmt.Sprintf("%.0fg total", bm.TotalDryGrams+bm.TotalWetGrams)
-		subtitle += "  " + MutedStyle.Render("·  "+hydStr+"  ·  "+totalStr)
-	}
 
 	breadcrumb := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(
 		"🍳  enplace  " + MutedStyle.Render("/") + "  " +

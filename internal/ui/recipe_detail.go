@@ -414,9 +414,9 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	}
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(
-				fmt.Sprintf("Hydration: %.1f%%", bm.HydrationPct),
-			))
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			hydLine := fmt.Sprintf("Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
 			if bm.StarterCount > 0 {
 				sb.WriteString(MutedStyle.Render("  (100% hydration starter assumed)"))
 			}
@@ -462,6 +462,48 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString("\n")
 		sb.WriteString(MutedStyle.Render("Source: " + r.SourceURL))
 		sb.WriteString("\n")
+	}
+
+	// Baker's percentages table — bread/dough recipes only.
+	if r.IsBread {
+		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil && len(bm.PerIngredient) > 0 {
+			sb.WriteString("\n")
+			sb.WriteString(SectionLabelStyle.Render("Baker's Percentages"))
+			sb.WriteString("\n")
+
+			// Compute name column width.
+			maxName := 0
+			for _, ing := range bm.PerIngredient {
+				n := len([]rune(ing.Name))
+				if ing.Type == "starter" {
+					n++
+				}
+				if n > maxName {
+					maxName = n
+				}
+			}
+
+			for _, ing := range bm.PerIngredient {
+				name := ing.Name
+				if ing.Type == "starter" {
+					name += "*"
+				}
+				grams := int(ing.WeightGrams + 0.5)
+				line := fmt.Sprintf("  %-*s  %5dg  %6.1f%%", maxName, name, grams, ing.Percentage)
+				sb.WriteString(MutedStyle.Render(line))
+				sb.WriteString("\n")
+			}
+
+			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + 0.5)
+			hydLine := fmt.Sprintf("  Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
+			sb.WriteString("\n")
+			if bm.StarterCount > 0 {
+				sb.WriteString(MutedStyle.Render("  * 100% hydration starter assumed"))
+				sb.WriteString("\n")
+			}
+		}
 	}
 
 	return sb.String()
