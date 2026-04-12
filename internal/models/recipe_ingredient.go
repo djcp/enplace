@@ -9,6 +9,7 @@ type RecipeIngredient struct {
 	Quantity        string   `db:"quantity"`
 	QuantityNumeric *float64 `db:"quantity_numeric"`
 	Unit            string   `db:"unit"`
+	UnitWeightG     *float64 `db:"unit_weight_g"`
 	Descriptor      string   `db:"descriptor"`
 	Section         string   `db:"section"`
 	Position        int      `db:"position"`

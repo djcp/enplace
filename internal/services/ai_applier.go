@@ -52,6 +52,7 @@ func ApplyExtractedRecipe(sqlDB *sqlx.DB, recipeID int64, extracted *ExtractedRe
 			IngredientID: ingID,
 			Quantity:     ing.Quantity,
 			Unit:         ing.Unit,
+			UnitWeightG:  ing.UnitWeightG,
 			Position:     pos,
 		}
 		if ing.Descriptor != nil {

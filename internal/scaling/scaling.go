@@ -35,6 +35,25 @@ func toGrams(qty float64, unit string) (float64, bool) {
 	return qty * factor, true
 }
 
+// effectiveWeightGrams converts an ingredient to its gram weight.
+// It first tries standard weight-unit conversion (g, kg, oz, lb). If the unit
+// is not a weight unit but UnitWeightG is set (e.g. eggs with a per-unit gram
+// weight), it multiplies QuantityNumeric by UnitWeightG instead.
+// Returns (0, false) when the ingredient cannot be converted.
+func effectiveWeightGrams(ing models.RecipeIngredient) (float64, bool) {
+	if ing.QuantityNumeric == nil {
+		return 0, false
+	}
+	qty := *ing.QuantityNumeric
+	if g, ok := toGrams(qty, ing.Unit); ok {
+		return g, true
+	}
+	if ing.UnitWeightG != nil && *ing.UnitWeightG > 0 {
+		return qty * *ing.UnitWeightG, true
+	}
+	return 0, false
+}
+
 // unicodeFractions maps Unicode vulgar-fraction runes to their float64 value.
 var unicodeFractions = map[rune]float64{
 	'½': 1.0 / 2,
@@ -296,11 +315,7 @@ func TotalWeightGrams(ingredients []models.RecipeIngredient) (float64, bool) {
 		if ing.IngredientType == "" {
 			continue // salt, yeast, spices — excluded by design
 		}
-		if ing.QuantityNumeric == nil {
-			allConverted = false
-			continue
-		}
-		g, ok := toGrams(*ing.QuantityNumeric, ing.Unit)
+		g, ok := effectiveWeightGrams(ing)
 		if !ok {
 			allConverted = false
 			continue
@@ -349,11 +364,7 @@ func BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, er
 		if ing.IngredientType == "" {
 			continue
 		}
-		if ing.QuantityNumeric == nil {
-			res.ExcludedCount++
-			continue
-		}
-		g, ok := toGrams(*ing.QuantityNumeric, ing.Unit)
+		g, ok := effectiveWeightGrams(ing)
 		if !ok {
 			res.ExcludedCount++
 			continue
@@ -380,10 +391,10 @@ func BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, er
 	res.HydrationPct = (res.TotalWetGrams / res.TotalDryGrams) * 100
 
 	for _, ing := range ingredients {
-		if ing.IngredientType == "" || ing.QuantityNumeric == nil {
+		if ing.IngredientType == "" {
 			continue
 		}
-		g, ok := toGrams(*ing.QuantityNumeric, ing.Unit)
+		g, ok := effectiveWeightGrams(ing)
 		if !ok {
 			continue
 		}

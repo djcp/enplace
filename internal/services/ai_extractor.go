@@ -25,7 +25,7 @@ Return ONLY a JSON object with these fields, and make sure the values are proper
   "serving_units": "e.g. servings, cups, pieces" or null,
   "is_bread": false,
   "ingredients": [
-    {"quantity": "120", "unit": "g", "name": "bread flour", "descriptor": null, "section": null, "ingredient_type": "dry"}
+    {"quantity": "120", "unit": "g", "name": "bread flour", "descriptor": null, "section": null, "ingredient_type": "dry", "unit_weight_g": null}
   ],
   "cooking_methods": ["bake", "saute"],
   "cultural_influences": ["italian"],
@@ -42,8 +42,10 @@ Ingredients:
 - Every ingredient in the list MUST be referenced in the directions. If the source text mentions an ingredient only in the directions but not in the ingredient list, add it to the ingredients list
 
 Bread and dough recipes — volume-to-weight conversion:
-- For bread and dough recipes, convert all ingredient quantities to grams where the weight equivalent is well-established. Use these reference values: 1 cup AP flour = 120g, 1 cup bread flour = 130g, 1 cup whole wheat flour = 120g, 1 cup rye flour = 102g, 1 cup water = 240g, 1 cup whole milk = 240g, 1 tbsp honey = 21g, 1 tbsp olive oil = 14g, 1 tbsp butter = 14g, 1 large egg = 50g, 1 tsp salt = 6g, 1 tsp instant yeast = 3g, 1 tsp active dry yeast = 4g, 1 cup rolled oats = 90g, 1 cup sourdough starter = 240g, 1 cup levain = 240g. Store the result as the quantity in grams with unit "g".
-- Leave as original units for ingredients where weight conversion is ambiguous (e.g. "2 cloves garlic", "1 sprig rosemary"). For non-bread recipes, use original units as written in the source.
+- For bread and dough recipes, convert all ingredient quantities to grams where the weight equivalent is well-established. The following are common reference values — they are not exhaustive, and you should apply your best knowledge to convert any ingredient not listed: 1 cup AP flour = 120g, 1 cup bread flour = 130g, 1 cup whole wheat flour = 120g, 1 cup rye flour = 102g, 1 cup water = 240g, 1 cup whole milk = 240g, 1 cup butter = 227g, 1 tbsp butter = 14g, 1 cup honey = 340g, 1 tbsp honey = 21g, 1 cup olive oil = 216g, 1 tbsp olive oil = 14g, 1 tsp salt = 6g, 1 tsp instant yeast = 3g, 1 tsp active dry yeast = 4g, 1 cup rolled oats = 90g, 1 cup sourdough starter = 240g, 1 cup levain = 240g. Store the result as the quantity in grams with unit "g".
+- When converting a range (e.g. "3 1/2 to 3 3/4 cups flour"), use the midpoint of the range for the conversion and express the result as a rounded integer (e.g. 3.625 cups × 120g = 435g). Always multiply the full stated quantity by the per-cup/per-tbsp/per-tsp reference — never use the reference value directly as the result without multiplying.
+- Leave as original units for ingredients where weight conversion is ambiguous or not meaningful (e.g. "2 cloves garlic", "1 sprig rosemary") and for whole eggs (always keep as count, e.g. "1" with unit "large" or ""). For non-bread recipes, use original units as written in the source.
+- For bread and dough recipes (is_bread: true), set unit_weight_g to the gram weight of a single unit for countable whole-unit ingredients. The following are common reference values — they are not exhaustive, and you should use your best judgment to estimate the per-unit weight of any whole-unit ingredient not listed: 1 large egg = 50g, 1 medium egg = 44g, 1 small egg = 38g, 1 extra-large egg = 56g, 1 garlic clove = 3g. Leave unit_weight_g as null only when no reasonable per-unit weight estimate exists (e.g. "1 sprig rosemary"). Leave unit_weight_g as null for all non-bread recipes.
 - For bread recipes, express servings as the number of loaves/rolls/buns and set serving_units accordingly (e.g. "loaves", "rolls").
 
 Bread/dough flag and ingredient type classification:
@@ -78,12 +80,13 @@ Return ONLY valid JSON, no JSON markdown code fences, no explanation.`
 
 // ExtractedIngredient is the AI-returned ingredient structure.
 type ExtractedIngredient struct {
-	Quantity       string  `json:"quantity"`
-	Unit           string  `json:"unit"`
-	Name           string  `json:"name"`
-	Descriptor     *string `json:"descriptor"`
-	Section        *string `json:"section"`
-	IngredientType *string `json:"ingredient_type"`
+	Quantity       string   `json:"quantity"`
+	Unit           string   `json:"unit"`
+	Name           string   `json:"name"`
+	Descriptor     *string  `json:"descriptor"`
+	Section        *string  `json:"section"`
+	IngredientType *string  `json:"ingredient_type"`
+	UnitWeightG    *float64 `json:"unit_weight_g"`
 }
 
 // ExtractedRecipe is the AI-returned recipe structure.
