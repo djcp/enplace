@@ -4,12 +4,11 @@ import (
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
 	"github.com/djcp/enplace/internal/scaling"
-	"github.com/jmoiron/sqlx"
 )
 
 // ApplyExtractedRecipe writes all AI-extracted data to an existing recipe row.
 // It replaces ingredients and tags, then sets the recipe status to "review".
-func ApplyExtractedRecipe(sqlDB *sqlx.DB, recipeID int64, extracted *ExtractedRecipe) error {
+func ApplyExtractedRecipe(sqlDB *db.DB, recipeID int64, extracted *ExtractedRecipe) error {
 	// Preserve fields the AI result must not overwrite (e.g. source_url).
 	existing, err := db.GetRecipe(sqlDB, recipeID)
 	if err != nil {

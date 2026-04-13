@@ -12,13 +12,12 @@ import (
 	"github.com/djcp/enplace/internal/logging"
 	"github.com/djcp/enplace/internal/ui"
 	"github.com/djcp/enplace/internal/version"
-	"github.com/jmoiron/sqlx"
 	"github.com/spf13/cobra"
 )
 
 var (
 	cfg   *config.Config
-	sqlDB *sqlx.DB
+	sqlDB *db.DB
 )
 
 // Root is the top-level command. Running it with no subcommand opens the recipe browser.
@@ -73,7 +72,7 @@ func initApp() {
 	}
 	Root.PersistentPostRun = func(_ *cobra.Command, _ []string) { logFile.Close() }
 
-	sqlDB, err = db.Open(cfg.DBPath, logging.GooseLogger(logger))
+	sqlDB, err = db.Open(cfg, logging.GooseLogger(logger))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 		os.Exit(1)

@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 type manageAIRunsPhase int
@@ -27,7 +26,7 @@ const pruneAge = 30 * 24 * time.Hour
 
 // manageAIRunsModel is the TUI model for AI runs browsing.
 type manageAIRunsModel struct {
-	sqlDB *sqlx.DB
+	sqlDB *db.DB
 
 	phase manageAIRunsPhase
 
@@ -61,7 +60,7 @@ type manageAIRunsModel struct {
 	height int
 }
 
-func newManageAIRunsModel(sqlDB *sqlx.DB) manageAIRunsModel {
+func newManageAIRunsModel(sqlDB *db.DB) manageAIRunsModel {
 	return manageAIRunsModel{sqlDB: sqlDB, width: 80, height: 24}
 }
 
@@ -586,7 +585,7 @@ func (m manageAIRunsModel) viewPruneResult() string {
 
 // RunManageAIRunsUI runs the AI runs management TUI.
 // Returns retryRecipeID > 0 if the user confirmed a retry, 0 for normal exit.
-func RunManageAIRunsUI(sqlDB *sqlx.DB) (retryRecipeID int64, err error) {
+func RunManageAIRunsUI(sqlDB *db.DB) (retryRecipeID int64, err error) {
 	m := newManageAIRunsModel(sqlDB)
 	if err := m.loadRuns(); err != nil {
 		return 0, err

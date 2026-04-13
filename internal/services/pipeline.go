@@ -8,7 +8,6 @@ import (
 
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 // Step constants for progress reporting.
@@ -31,7 +30,7 @@ type ProgressFunc func(step int, label string)
 
 // PipelineConfig holds dependencies for the extraction pipeline.
 type PipelineConfig struct {
-	DB     *sqlx.DB
+	DB     *db.DB
 	Client AIClient
 	Model  string
 	OnStep ProgressFunc // optional; called at start of each step
@@ -120,7 +119,7 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, recipeID int64) (*mode
 	return db.GetRecipe(cfg.DB, recipeID)
 }
 
-func recordRunStart(sqlDB *sqlx.DB, recipeID int64, serviceClass, model, sysprompt, userPrompt string) (int64, error) {
+func recordRunStart(sqlDB *db.DB, recipeID int64, serviceClass, model, sysprompt, userPrompt string) (int64, error) {
 	now := time.Now()
 	run := &models.AIClassifierRun{
 		RecipeID:     &recipeID,

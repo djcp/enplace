@@ -6,11 +6,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 // openTestDB opens an in-memory DB for UI-layer tests.
-func openTestDB(t *testing.T) *sqlx.DB {
+func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
 	if err != nil {

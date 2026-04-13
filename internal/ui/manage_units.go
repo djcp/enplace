@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/db"
-	"github.com/jmoiron/sqlx"
 )
 
 type manageUnitsPhase int
@@ -23,7 +22,7 @@ const (
 
 // manageUnitsModel is the TUI model for serving-unit management.
 type manageUnitsModel struct {
-	sqlDB *sqlx.DB
+	sqlDB *db.DB
 
 	phase manageUnitsPhase
 
@@ -49,7 +48,7 @@ type manageUnitsModel struct {
 	height int
 }
 
-func newManageUnitsModel(sqlDB *sqlx.DB) manageUnitsModel {
+func newManageUnitsModel(sqlDB *db.DB) manageUnitsModel {
 	return manageUnitsModel{sqlDB: sqlDB, width: 80, height: 24}
 }
 
@@ -408,7 +407,7 @@ func (m manageUnitsModel) viewResult() string {
 }
 
 // RunManageUnitsUI runs the serving-units management TUI.
-func RunManageUnitsUI(sqlDB *sqlx.DB) error {
+func RunManageUnitsUI(sqlDB *db.DB) error {
 	m := newManageUnitsModel(sqlDB)
 	if err := m.loadUnits(); err != nil {
 		return err
