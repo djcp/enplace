@@ -87,6 +87,18 @@ func initApp() {
 		// Non-fatal: log and continue. Existing bread recipes will re-extract cleanly.
 		logger.Warn("ingredient_type backfill failed", "error", err)
 	}
+
+	if cfg.Driver() == "postgres" {
+		sqliteCount, err := db.SQLiteHasRecipes(cfg.DBPath)
+		if err != nil {
+			logger.Warn("could not check sqlite recipe count", "error", err)
+		} else if sqliteCount > 0 {
+			if err := runMigrationFlow(sqlDB, cfg, logger); err != nil {
+				fmt.Fprintf(os.Stderr, "Migration error: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	}
 }
 
 func runOnboarding(cfg *config.Config) error {
