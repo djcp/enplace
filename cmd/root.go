@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -131,13 +132,84 @@ func runOnboarding(cfg *config.Config) error {
 	}
 
 	cfg.AnthropicAPIKey = strings.TrimSpace(apiKey)
+
+	// Step 2: Database choice.
+	var dbChoice string
+	form2 := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Where would you like to store your recipes?").
+				Options(
+					huh.NewOption("Local SQLite (recommended — no setup required)", "sqlite"),
+					huh.NewOption("PostgreSQL", "postgres"),
+				).
+				Value(&dbChoice),
+		),
+	)
+	if err := form2.Run(); err != nil {
+		// Non-fatal: default to sqlite
+		dbChoice = "sqlite"
+	}
+
+	if dbChoice == "postgres" {
+		for {
+			var dsn string
+			form3 := huh.NewForm(huh.NewGroup(
+				huh.NewInput().
+					Title("PostgreSQL connection string").
+					Description("Examples:\n  Remote: postgres://user:pass@host:5432/dbname?sslmode=require\n  Local:  host=/run/postgresql dbname=enplace").
+					Value(&dsn).
+					Validate(func(s string) error {
+						s = strings.TrimSpace(s)
+						if s == "" {
+							return fmt.Errorf("connection string required")
+						}
+						if err := db.TestPostgresConnection(s); err != nil {
+							return fmt.Errorf("could not connect: %v", err)
+						}
+						return nil
+					}),
+			))
+			err := form3.Run()
+			if err == nil {
+				cfg.PostgresDSN = strings.TrimSpace(dsn)
+				break
+			}
+			// ErrUserAborted (Esc pressed) — offer fallback
+			if errors.Is(err, huh.ErrUserAborted) {
+				var fallback string
+				form4 := huh.NewForm(huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Connection failed. What would you like to do?").
+						Options(
+							huh.NewOption("Try a different connection string", "retry"),
+							huh.NewOption("Use local SQLite instead", "sqlite"),
+						).
+						Value(&fallback),
+				))
+				if err2 := form4.Run(); err2 != nil || fallback == "sqlite" {
+					cfg.PostgresDSN = ""
+					break
+				}
+				// fallback == "retry": loop continues
+			} else {
+				return err
+			}
+		}
+	}
+
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
 	path, _ := config.FilePath()
 	fmt.Println()
-	fmt.Println(ui.SuccessStyle.Render("✓ API key saved to " + path))
+	if cfg.PostgresDSN != "" {
+		fmt.Println(ui.SuccessStyle.Render("✓ Config saved — using PostgreSQL: " + config.MaskDSN(cfg.PostgresDSN)))
+	} else {
+		fmt.Println(ui.SuccessStyle.Render("✓ Config saved — using local SQLite: " + cfg.DBPath))
+	}
+	fmt.Println(ui.MutedStyle.Render("  Config file: " + path))
 	fmt.Println()
 
 	return nil
