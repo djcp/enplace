@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 // execTx runs each step inside a single transaction, rolling back on the first error.
-func execTx(db *sqlx.DB, steps ...func(*sql.Tx) error) error {
+func execTx(db *DB, steps ...func(*sql.Tx) error) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -61,7 +60,7 @@ type AIRunSummary struct {
 // --- Tag management ---
 
 // ListTagsByContext returns all tags in a context with their recipe counts, sorted by name.
-func ListTagsByContext(db *sqlx.DB, context string) ([]TagWithCount, error) {
+func ListTagsByContext(db *DB, context string) ([]TagWithCount, error) {
 	var rows []TagWithCount
 	err := db.Select(&rows, `
 		SELECT t.id, t.name, t.context,
@@ -77,35 +76,34 @@ func ListTagsByContext(db *sqlx.DB, context string) ([]TagWithCount, error) {
 }
 
 // RenameTag updates a tag's name in-place.
-func RenameTag(db *sqlx.DB, id int64, newName string) error {
+func RenameTag(db *DB, id int64, newName string) error {
 	_, err := db.Exec(`UPDATE tags SET name = ? WHERE id = ?`, newName, id)
 	return err
 }
 
 // MergeTag repoints all recipe_tags from sourceID to targetID, then deletes the source tag.
-func MergeTag(db *sqlx.DB, sourceID, targetID int64) error {
+func MergeTag(db *DB, sourceID, targetID int64) error {
 	return execTx(db,
 		func(tx *sql.Tx) error {
-			_, err := tx.Exec(`
-				INSERT OR IGNORE INTO recipe_tags (recipe_id, tag_id)
-				SELECT recipe_id, ? FROM recipe_tags WHERE tag_id = ?`,
-				targetID, sourceID,
-			)
+			q := db.Rebind(db.onConflictDoNothing(
+				`INSERT INTO recipe_tags (recipe_id, tag_id) SELECT recipe_id, ? FROM recipe_tags WHERE tag_id = ?`,
+			))
+			_, err := tx.Exec(q, targetID, sourceID)
 			return err
 		},
 		func(tx *sql.Tx) error {
-			_, err := tx.Exec(`DELETE FROM recipe_tags WHERE tag_id = ?`, sourceID)
+			_, err := tx.Exec(db.Rebind(`DELETE FROM recipe_tags WHERE tag_id = ?`), sourceID)
 			return err
 		},
 		func(tx *sql.Tx) error {
-			_, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, sourceID)
+			_, err := tx.Exec(db.Rebind(`DELETE FROM tags WHERE id = ?`), sourceID)
 			return err
 		},
 	)
 }
 
 // DeleteTag removes a tag row; recipe_tags cascade-deletes automatically.
-func DeleteTag(db *sqlx.DB, id int64) error {
+func DeleteTag(db *DB, id int64) error {
 	_, err := db.Exec(`DELETE FROM tags WHERE id = ?`, id)
 	return err
 }
@@ -114,7 +112,7 @@ func DeleteTag(db *sqlx.DB, id int64) error {
 
 // ListIngredientsWithCount returns ingredients with their usage counts, sorted alphabetically.
 // When search is non-empty, only ingredients whose name contains the search string (case-insensitive) are returned.
-func ListIngredientsWithCount(db *sqlx.DB, search string) ([]IngredientWithCount, error) {
+func ListIngredientsWithCount(db *DB, search string) ([]IngredientWithCount, error) {
 	var rows []IngredientWithCount
 	if search == "" {
 		err := db.Select(&rows, `
@@ -139,24 +137,24 @@ func ListIngredientsWithCount(db *sqlx.DB, search string) ([]IngredientWithCount
 }
 
 // RenameIngredient updates an ingredient's name.
-func RenameIngredient(db *sqlx.DB, id int64, newName string) error {
+func RenameIngredient(db *DB, id int64, newName string) error {
 	_, err := db.Exec(`UPDATE ingredients SET name = ? WHERE id = ?`, newName, id)
 	return err
 }
 
 // MergeIngredient repoints all recipe_ingredient rows from source to target,
 // then deletes the source ingredient.
-func MergeIngredient(db *sqlx.DB, sourceID, targetID int64) error {
+func MergeIngredient(db *DB, sourceID, targetID int64) error {
 	return execTx(db,
 		func(tx *sql.Tx) error {
 			_, err := tx.Exec(
-				`UPDATE recipe_ingredients SET ingredient_id = ? WHERE ingredient_id = ?`,
+				db.Rebind(`UPDATE recipe_ingredients SET ingredient_id = ? WHERE ingredient_id = ?`),
 				targetID, sourceID,
 			)
 			return err
 		},
 		func(tx *sql.Tx) error {
-			_, err := tx.Exec(`DELETE FROM ingredients WHERE id = ?`, sourceID)
+			_, err := tx.Exec(db.Rebind(`DELETE FROM ingredients WHERE id = ?`), sourceID)
 			return err
 		},
 	)
@@ -165,7 +163,7 @@ func MergeIngredient(db *sqlx.DB, sourceID, targetID int64) error {
 // --- Unit management ---
 
 // ListUnitsWithCount returns all distinct non-empty unit values with usage counts.
-func ListUnitsWithCount(db *sqlx.DB) ([]UnitWithCount, error) {
+func ListUnitsWithCount(db *DB) ([]UnitWithCount, error) {
 	var rows []UnitWithCount
 	err := db.Select(&rows, `
 		SELECT unit AS name, COUNT(*) AS count
@@ -177,7 +175,7 @@ func ListUnitsWithCount(db *sqlx.DB) ([]UnitWithCount, error) {
 }
 
 // RenameUnit updates every recipe_ingredient row with oldName to newName.
-func RenameUnit(db *sqlx.DB, oldName, newName string) error {
+func RenameUnit(db *DB, oldName, newName string) error {
 	_, err := db.Exec(
 		`UPDATE recipe_ingredients SET unit = ? WHERE unit = ?`,
 		newName, oldName,
@@ -186,14 +184,14 @@ func RenameUnit(db *sqlx.DB, oldName, newName string) error {
 }
 
 // MergeUnit is equivalent to RenameUnit — all rows with sourceName get targetName.
-func MergeUnit(db *sqlx.DB, sourceName, targetName string) error {
+func MergeUnit(db *DB, sourceName, targetName string) error {
 	return RenameUnit(db, sourceName, targetName)
 }
 
 // --- AI Run management ---
 
 // ListAIRunSummaries returns all AI runs, newest first, with recipe name when available.
-func ListAIRunSummaries(db *sqlx.DB) ([]AIRunSummary, error) {
+func ListAIRunSummaries(db *DB) ([]AIRunSummary, error) {
 	var rows []AIRunSummary
 	err := db.Select(&rows, `
 		SELECT a.id, COALESCE(r.name, '') AS recipe_name,
@@ -216,7 +214,7 @@ func ListAIRunSummaries(db *sqlx.DB) ([]AIRunSummary, error) {
 }
 
 // GetAIRun returns the full AIClassifierRun record by ID.
-func GetAIRun(db *sqlx.DB, id int64) (*models.AIClassifierRun, error) {
+func GetAIRun(db *DB, id int64) (*models.AIClassifierRun, error) {
 	var r models.AIClassifierRun
 	err := db.Get(&r, `SELECT * FROM ai_classifier_runs WHERE id = ?`, id)
 	if err != nil {
@@ -226,13 +224,13 @@ func GetAIRun(db *sqlx.DB, id int64) (*models.AIClassifierRun, error) {
 }
 
 // DeleteAIRun removes a single AI run by ID.
-func DeleteAIRun(db *sqlx.DB, id int64) error {
+func DeleteAIRun(db *DB, id int64) error {
 	_, err := db.Exec(`DELETE FROM ai_classifier_runs WHERE id = ?`, id)
 	return err
 }
 
 // DeleteAIRunsOlderThan removes AI runs created before now-age and returns the count deleted.
-func DeleteAIRunsOlderThan(db *sqlx.DB, age time.Duration) (int64, error) {
+func DeleteAIRunsOlderThan(db *DB, age time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-age)
 	result, err := db.Exec(
 		`DELETE FROM ai_classifier_runs WHERE created_at < ?`, cutoff,
