@@ -9,7 +9,6 @@ import (
 
 	"github.com/djcp/enplace/internal/models"
 	"github.com/djcp/enplace/internal/scaling"
-	"github.com/jmoiron/sqlx"
 )
 
 // RecipeFilter holds search/filter parameters for listing recipes.
@@ -26,23 +25,19 @@ type RecipeFilter struct {
 // --- Recipes ---
 
 // CreateRecipe inserts a new recipe and returns its ID.
-func CreateRecipe(db *sqlx.DB, r *models.Recipe) (int64, error) {
+func CreateRecipe(db *DB, r *models.Recipe) (int64, error) {
 	now := time.Now()
-	result, err := db.Exec(`
+	return db.insertReturningID(`
 		INSERT INTO recipes (name, description, directions, preparation_time, cooking_time,
 		  servings, serving_units, is_bread, source_url, source_text, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.Name, r.Description, r.Directions, r.PreparationTime, r.CookingTime,
 		r.Servings, r.ServingUnits, r.IsBread, r.SourceURL, r.SourceText, r.Status, now, now,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // UpdateRecipeStatus changes only the status and updated_at fields.
-func UpdateRecipeStatus(db *sqlx.DB, id int64, status string) error {
+func UpdateRecipeStatus(db *DB, id int64, status string) error {
 	_, err := db.Exec(
 		`UPDATE recipes SET status = ?, updated_at = ? WHERE id = ?`,
 		status, time.Now(), id,
@@ -51,7 +46,7 @@ func UpdateRecipeStatus(db *sqlx.DB, id int64, status string) error {
 }
 
 // UpdateRecipeFields applies extracted AI data to an existing recipe.
-func UpdateRecipeFields(db *sqlx.DB, r *models.Recipe) error {
+func UpdateRecipeFields(db *DB, r *models.Recipe) error {
 	_, err := db.Exec(`
 		UPDATE recipes
 		SET name = ?, description = ?, directions = ?,
@@ -73,16 +68,22 @@ func UpdateRecipeFields(db *sqlx.DB, r *models.Recipe) error {
 
 // DeleteRecipe permanently removes a recipe. Related rows in recipe_ingredients
 // and recipe_tags are removed automatically via ON DELETE CASCADE.
-func DeleteRecipe(db *sqlx.DB, id int64) error {
+func DeleteRecipe(db *DB, id int64) error {
 	_, err := db.Exec(`DELETE FROM recipes WHERE id = ?`, id)
 	return err
 }
 
 // GetRecipeByURL returns the recipe whose source_url matches url
 // (case-insensitively), or nil if no such recipe exists.
-func GetRecipeByURL(sqlDB *sqlx.DB, url string) (*models.Recipe, error) {
+func GetRecipeByURL(sqlDB *DB, url string) (*models.Recipe, error) {
 	var r models.Recipe
-	err := sqlDB.Get(&r, `SELECT * FROM recipes WHERE source_url = ? COLLATE NOCASE`, url)
+	var query string
+	if sqlDB.Driver() == "postgres" {
+		query = `SELECT * FROM recipes WHERE LOWER(source_url) = LOWER($1)`
+	} else {
+		query = `SELECT * FROM recipes WHERE source_url = ? COLLATE NOCASE`
+	}
+	err := sqlDB.DB.Get(&r, query, url)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -93,7 +94,7 @@ func GetRecipeByURL(sqlDB *sqlx.DB, url string) (*models.Recipe, error) {
 }
 
 // GetRecipe retrieves a recipe by ID with all associations loaded.
-func GetRecipe(db *sqlx.DB, id int64) (*models.Recipe, error) {
+func GetRecipe(db *DB, id int64) (*models.Recipe, error) {
 	var r models.Recipe
 	if err := db.Get(&r, `SELECT * FROM recipes WHERE id = ?`, id); err != nil {
 		return nil, fmt.Errorf("recipe %d not found: %w", id, err)
@@ -115,7 +116,7 @@ func GetRecipe(db *sqlx.DB, id int64) (*models.Recipe, error) {
 }
 
 // ListRecipes returns recipes matching the filter, newest first.
-func ListRecipes(db *sqlx.DB, f RecipeFilter) ([]models.Recipe, error) {
+func ListRecipes(db *DB, f RecipeFilter) ([]models.Recipe, error) {
 	args := []interface{}{}
 	conditions := []string{}
 
@@ -190,25 +191,21 @@ func ListRecipes(db *sqlx.DB, f RecipeFilter) ([]models.Recipe, error) {
 // --- Ingredients & RecipeIngredients ---
 
 // FindOrCreateIngredient returns the existing ingredient ID or creates a new one.
-func FindOrCreateIngredient(db *sqlx.DB, name string) (int64, error) {
+func FindOrCreateIngredient(db *DB, name string) (int64, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	var id int64
 	err := db.Get(&id, `SELECT id FROM ingredients WHERE name = ?`, name)
 	if err == nil {
 		return id, nil
 	}
-	result, err := db.Exec(
+	return db.insertReturningID(
 		`INSERT INTO ingredients (name, created_at) VALUES (?, ?)`,
 		name, time.Now(),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // InsertRecipeIngredient adds one ingredient line to a recipe.
-func InsertRecipeIngredient(db *sqlx.DB, ri *models.RecipeIngredient) error {
+func InsertRecipeIngredient(db *DB, ri *models.RecipeIngredient) error {
 	_, err := db.Exec(`
 		INSERT INTO recipe_ingredients
 		  (recipe_id, ingredient_id, quantity, quantity_numeric, unit, unit_weight_g, descriptor, section, position)
@@ -219,13 +216,13 @@ func InsertRecipeIngredient(db *sqlx.DB, ri *models.RecipeIngredient) error {
 }
 
 // DeleteRecipeIngredients removes all ingredient lines for a recipe.
-func DeleteRecipeIngredients(db *sqlx.DB, recipeID int64) error {
+func DeleteRecipeIngredients(db *DB, recipeID int64) error {
 	_, err := db.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id = ?`, recipeID)
 	return err
 }
 
 // GetRecipeIngredients loads all ingredient lines for a recipe, ordered by section then position.
-func GetRecipeIngredients(db *sqlx.DB, recipeID int64) ([]models.RecipeIngredient, error) {
+func GetRecipeIngredients(db *DB, recipeID int64) ([]models.RecipeIngredient, error) {
 	var ris []models.RecipeIngredient
 	err := db.Select(&ris, `
 		SELECT ri.*, i.name AS ingredient_name, i.ingredient_type AS ingredient_type
@@ -240,7 +237,7 @@ func GetRecipeIngredients(db *sqlx.DB, recipeID int64) ([]models.RecipeIngredien
 
 // SetIngredientType updates the ingredient_type field on the canonical
 // ingredients table. Called after AI extraction to persist classification.
-func SetIngredientType(db *sqlx.DB, ingredientID int64, ingredientType string) error {
+func SetIngredientType(db *DB, ingredientID int64, ingredientType string) error {
 	_, err := db.Exec(`UPDATE ingredients SET ingredient_type = ? WHERE id = ?`, ingredientType, ingredientID)
 	return err
 }
@@ -248,39 +245,35 @@ func SetIngredientType(db *sqlx.DB, ingredientID int64, ingredientType string) e
 // --- Tags ---
 
 // FindOrCreateTag returns the existing tag ID or creates a new one.
-func FindOrCreateTag(db *sqlx.DB, name, context string) (int64, error) {
+func FindOrCreateTag(db *DB, name, context string) (int64, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	var id int64
 	err := db.Get(&id, `SELECT id FROM tags WHERE name = ? AND context = ?`, name, context)
 	if err == nil {
 		return id, nil
 	}
-	result, err := db.Exec(
+	return db.insertReturningID(
 		`INSERT INTO tags (name, context) VALUES (?, ?)`, name, context,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // AttachTag links a tag to a recipe (idempotent).
-func AttachTag(db *sqlx.DB, recipeID, tagID int64) error {
+func AttachTag(db *DB, recipeID, tagID int64) error {
 	_, err := db.Exec(
-		`INSERT OR IGNORE INTO recipe_tags (recipe_id, tag_id) VALUES (?, ?)`,
+		db.onConflictDoNothing(`INSERT INTO recipe_tags (recipe_id, tag_id) VALUES (?, ?)`),
 		recipeID, tagID,
 	)
 	return err
 }
 
 // DeleteRecipeTags removes all tags for a recipe.
-func DeleteRecipeTags(db *sqlx.DB, recipeID int64) error {
+func DeleteRecipeTags(db *DB, recipeID int64) error {
 	_, err := db.Exec(`DELETE FROM recipe_tags WHERE recipe_id = ?`, recipeID)
 	return err
 }
 
 // GetRecipeTags loads all tags for a recipe.
-func GetRecipeTags(db *sqlx.DB, recipeID int64) ([]models.Tag, error) {
+func GetRecipeTags(db *DB, recipeID int64) ([]models.Tag, error) {
 	var tags []models.Tag
 	err := db.Select(&tags, `
 		SELECT t.*
@@ -294,14 +287,14 @@ func GetRecipeTags(db *sqlx.DB, recipeID int64) ([]models.Tag, error) {
 }
 
 // AllIngredientNames returns every ingredient name in alphabetical order.
-func AllIngredientNames(db *sqlx.DB) ([]string, error) {
+func AllIngredientNames(db *DB) ([]string, error) {
 	var names []string
 	err := db.Select(&names, `SELECT name FROM ingredients ORDER BY name`)
 	return names, err
 }
 
 // AllUnits returns every distinct unit used in recipe ingredients, alphabetically.
-func AllUnits(db *sqlx.DB) ([]string, error) {
+func AllUnits(db *DB) ([]string, error) {
 	var units []string
 	err := db.Select(&units,
 		`SELECT DISTINCT unit FROM recipe_ingredients WHERE unit != '' ORDER BY unit`)
@@ -310,7 +303,7 @@ func AllUnits(db *sqlx.DB) ([]string, error) {
 
 // SaveRecipe creates (r.ID==0) or updates (r.ID>0) a recipe with its tags and
 // ingredients. r.Ingredients[*].IngredientName must be set; IDs are ignored.
-func SaveRecipe(db *sqlx.DB, r *models.Recipe, tagNames map[string][]string) error {
+func SaveRecipe(db *DB, r *models.Recipe, tagNames map[string][]string) error {
 	if r.ID == 0 {
 		id, err := CreateRecipe(db, r)
 		if err != nil {
@@ -369,7 +362,7 @@ func SaveRecipe(db *sqlx.DB, r *models.Recipe, tagNames map[string][]string) err
 }
 
 // AllTagsByContext returns every tag value for a given context (for filter menus).
-func AllTagsByContext(db *sqlx.DB, context string) ([]string, error) {
+func AllTagsByContext(db *DB, context string) ([]string, error) {
 	var names []string
 	err := db.Select(&names, `
 		SELECT DISTINCT t.name
@@ -382,12 +375,20 @@ func AllTagsByContext(db *sqlx.DB, context string) ([]string, error) {
 	return names, err
 }
 
+// RecipeCount returns the number of recipes in the database.
+// Used to decide whether to offer migration.
+func RecipeCount(db *DB) (int, error) {
+	var count int
+	err := db.Get(&count, `SELECT COUNT(*) FROM recipes`)
+	return count, err
+}
+
 // --- AI Classifier Runs ---
 
 // CreateAIRun inserts a new (in-progress) AI run record and returns its ID.
-func CreateAIRun(db *sqlx.DB, run *models.AIClassifierRun) (int64, error) {
+func CreateAIRun(db *DB, run *models.AIClassifierRun) (int64, error) {
 	now := time.Now()
-	result, err := db.Exec(`
+	return db.insertReturningID(`
 		INSERT INTO ai_classifier_runs
 		  (recipe_id, service_class, adapter, ai_model,
 		   system_prompt, user_prompt, success, started_at, created_at)
@@ -395,14 +396,10 @@ func CreateAIRun(db *sqlx.DB, run *models.AIClassifierRun) (int64, error) {
 		run.RecipeID, run.ServiceClass, run.Adapter, run.AIModel,
 		run.SystemPrompt, run.UserPrompt, now, now,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // CompleteAIRun marks an existing run as succeeded.
-func CompleteAIRun(db *sqlx.DB, id int64, rawResponse string) error {
+func CompleteAIRun(db *DB, id int64, rawResponse string) error {
 	now := time.Now()
 	_, err := db.Exec(`
 		UPDATE ai_classifier_runs
@@ -414,7 +411,7 @@ func CompleteAIRun(db *sqlx.DB, id int64, rawResponse string) error {
 }
 
 // FailAIRun marks an existing run as failed with error details.
-func FailAIRun(db *sqlx.DB, id int64, errClass, errMsg string) error {
+func FailAIRun(db *DB, id int64, errClass, errMsg string) error {
 	now := time.Now()
 	_, err := db.Exec(`
 		UPDATE ai_classifier_runs

@@ -5,12 +5,11 @@ import (
 
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 func fptr(f float64) *float64 { return &f }
 
-func openTestDB(t *testing.T) *sqlx.DB {
+func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
 	if err != nil {
