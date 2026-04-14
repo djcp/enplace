@@ -57,6 +57,53 @@ gh release create v1.0.x-alpha \
 
 That's it. GitHub Actions will cross-compile for all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64) and attach the archives and MD5 checksums to the release automatically.
 
+## Database layer
+
+### `*db.DB` wrapper type
+
+`internal/db/db.go` defines a `DB` struct that embeds `*sqlx.DB` and overrides `Get`, `Select`, `Exec`, and `QueryRow` to call `d.DB.Rebind(query)` before executing. This means all callers can write `?` placeholders universally — the wrapper translates them to `$1/$2/…` for PostgreSQL automatically.
+
+Key methods on `*db.DB`:
+- `Driver()` — returns `"postgres"` or `"sqlite3"`
+- `insertReturningID(query, args...)` — uses `RETURNING id` on postgres, `LastInsertId()` on sqlite
+- `onConflictDoNothing(query)` — prepends `INSERT OR IGNORE` on sqlite, appends `ON CONFLICT DO NOTHING` on postgres
+
+### Dialect-specific query callsites
+
+Two places cannot be handled by the wrapper's auto-rebind and require explicit branching:
+
+1. **`GetRecipeByURL`** — SQLite uses `COLLATE NOCASE`, PostgreSQL uses `LOWER(source_url) = LOWER($1)`. The query is built with `if db.Driver() == "postgres"` and passed directly to `db.DB.Get` (bypassing the wrapper's rebind since the pg variant uses `$1`).
+
+2. **`AttachTag` / `MergeTag`** — INSERT idempotency: `onConflictDoNothing` wraps the query string before passing to `db.Exec`.
+
+### `execTx` callbacks need explicit `db.Rebind()`
+
+The `execTx` helper in `manage_queries.go` uses raw `*sql.Tx` (obtained via `db.Begin()`). A raw `*sql.Tx` bypasses the `*db.DB` wrapper — there is no automatic rebind. Every query string inside a tx callback must be wrapped with `db.Rebind(query)` before passing to `tx.Exec`.
+
+### Migration directories
+
+- `internal/db/migrations/sqlite/` — 5 goose files for SQLite schema
+- `internal/db/migrations/postgres/` — 5 parallel goose files with PostgreSQL-compatible DDL (`BIGSERIAL`, `TIMESTAMPTZ`, `BOOLEAN`, partial unique index on `LOWER()`)
+
+Both directories are embedded via `//go:embed` in `db.go`. Goose's `goose_db_version` table is the schema_migrations equivalent — it is managed automatically.
+
+### `MigrateToPostgres`
+
+Uses `SaveRecipe` (the normal find-or-create path) to copy recipes, not a bulk INSERT. This means:
+- Ingredient and tag deduplication works correctly when postgres already has some data
+- Duplicate URLs are skipped (`GetRecipeByURL` check before each recipe)
+- `r.ID = 0` before calling `SaveRecipe` forces the `CreateRecipe` path
+
+After a successful migration, call `ClearSQLiteData` to remove all data from the SQLite file (schema and file are preserved).
+
+### Integration tests
+
+Integration tests are in `internal/db/migrate_postgres_test.go` with a `//go:build integration` tag. They are skipped unless `TEST_POSTGRES_DSN` env var is set. Run with:
+
+```sh
+TEST_POSTGRES_DSN="postgres://..." go test -tags integration ./internal/db/...
+```
+
 ## UI / lipgloss rendering
 
 ### Centering multi-line blocks (dialogs, forms, overlays)

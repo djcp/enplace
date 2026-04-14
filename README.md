@@ -195,6 +195,28 @@ Displays and edits the current configuration: API key (masked), AI model, and ex
 
 Also accessible from the interactive browser via `m` → **Configure**.
 
+## Database backends
+
+By default enplace stores recipes in a local SQLite file at `~/.local/share/enplace/recipes.db` — no configuration required.
+
+### PostgreSQL
+
+To use a PostgreSQL database instead, run `enplace config` and enter a connection string, or set `postgres_dsn` in `~/.config/enplace/config.json`.
+
+Connection string formats:
+
+```
+# Remote with TLS
+postgres://user:password@host:5432/dbname?sslmode=require
+
+# Local Unix socket
+host=/run/postgresql dbname=enplace
+```
+
+On first launch with a PostgreSQL DSN configured, enplace connects, runs migrations, and prompts you to import any existing local recipes. After a successful import the local SQLite data is cleared. The SQLite file itself is not deleted.
+
+If the PostgreSQL connection fails at startup, enplace exits with an error — it does not silently fall back to SQLite. Fix the connection string with `enplace config`.
+
 ## Building
 
 Requires Go 1.21+. No C compiler needed.
