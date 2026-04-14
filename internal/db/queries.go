@@ -169,7 +169,7 @@ func ListRecipes(db *DB, f RecipeFilter) ([]models.Recipe, error) {
 		where = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	query := fmt.Sprintf(`SELECT r.* FROM recipes r %s ORDER BY r.created_at DESC`, where)
+	query := fmt.Sprintf(`SELECT r.* FROM recipes r %s ORDER BY r.updated_at DESC`, where)
 
 	var recipes []models.Recipe
 	if err := db.Select(&recipes, query, args...); err != nil {
