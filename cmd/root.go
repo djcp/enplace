@@ -3,6 +3,8 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -17,8 +19,10 @@ import (
 )
 
 var (
-	cfg   *config.Config
-	sqlDB *db.DB
+	cfg     *config.Config
+	sqlDB   *db.DB
+	logger  *slog.Logger
+	logFile io.Closer
 )
 
 // Root is the top-level command. Running it with no subcommand opens the recipe browser.
@@ -36,7 +40,14 @@ func init() {
 	Root.AddCommand(showCmd)
 	Root.AddCommand(configCmd)
 
-	cobra.OnInitialize(initApp)
+	// PersistentPreRunE opens the database for all commands that need it.
+	// configCmd overrides this with a no-op so it works without a DB connection.
+	Root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		initDB()
+		return nil
+	}
+
+	cobra.OnInitialize(initConfig)
 }
 
 // Execute runs the root command.
@@ -46,7 +57,10 @@ func Execute() {
 	}
 }
 
-func initApp() {
+// initConfig loads configuration and opens the log file. It is safe to call
+// even when no database is available — used by cobra.OnInitialize so it runs
+// for every command, including config.
+func initConfig() {
 	var err error
 	cfg, err = config.Load()
 	if err != nil {
@@ -54,6 +68,23 @@ func initApp() {
 		os.Exit(1)
 	}
 
+	logPath, err := cfg.LogPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving log path: %v\n", err)
+		os.Exit(1)
+	}
+	logger, logFile, err = logging.Open(logPath, cfg.MaxLogLines)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening log file: %v\n", err)
+		os.Exit(1)
+	}
+	Root.PersistentPostRun = func(_ *cobra.Command, _ []string) { logFile.Close() }
+}
+
+// initDB opens the database, runs backfills, and handles the SQLite→PostgreSQL
+// migration prompt. Called from Root.PersistentPreRunE for all commands except
+// config (which overrides PersistentPreRunE to skip the DB entirely).
+func initDB() {
 	if !cfg.IsConfigured() {
 		if err := runOnboarding(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Setup cancelled.\n")
@@ -61,18 +92,7 @@ func initApp() {
 		}
 	}
 
-	logPath, err := cfg.LogPath()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error resolving log path: %v\n", err)
-		os.Exit(1)
-	}
-	logger, logFile, err := logging.Open(logPath, cfg.MaxLogLines)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening log file: %v\n", err)
-		os.Exit(1)
-	}
-	Root.PersistentPostRun = func(_ *cobra.Command, _ []string) { logFile.Close() }
-
+	var err error
 	sqlDB, err = db.Open(cfg, logging.GooseLogger(logger))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
@@ -80,11 +100,9 @@ func initApp() {
 	}
 
 	if err := db.BackfillQuantityNumeric(sqlDB); err != nil {
-		// Non-fatal: log and continue. Scaling won't work for unparsed rows.
 		logger.Warn("quantity_numeric backfill failed", "error", err)
 	}
 	if err := db.BackfillIngredientTypes(sqlDB); err != nil {
-		// Non-fatal: log and continue. Existing bread recipes will re-extract cleanly.
 		logger.Warn("ingredient_type backfill failed", "error", err)
 	}
 

@@ -201,7 +201,9 @@ By default enplace stores recipes in a local SQLite file at `~/.local/share/enpl
 
 ### PostgreSQL
 
-To use a PostgreSQL database instead, run `enplace config` and enter a connection string, or set `postgres_dsn` in `~/.config/enplace/config.json`.
+To use a PostgreSQL database instead, open the configuration screen with `enplace config` and fill in the **PostgreSQL DSN** field. You can also set `postgres_dsn` directly in `~/.config/enplace/config.json`.
+
+`enplace config` works without an active database connection, so it is safe to use for fixing a broken or missing DSN.
 
 Connection string formats:
 
@@ -209,8 +211,11 @@ Connection string formats:
 # Remote with TLS
 postgres://user:password@host:5432/dbname?sslmode=require
 
-# Local Unix socket
+# Local Unix socket (key=value)
 host=/run/postgresql dbname=enplace
+
+# Local Unix socket (URL, no host)
+postgres:///enplace
 ```
 
 On first launch with a PostgreSQL DSN configured, enplace connects, runs migrations, and prompts you to import any existing local recipes. After a successful import the local SQLite data is cleared. The SQLite file itself is not deleted.
