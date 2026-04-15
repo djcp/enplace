@@ -187,7 +187,7 @@ func runOnboarding(cfg *config.Config) error {
 			form3 := huh.NewForm(huh.NewGroup(
 				huh.NewInput().
 					Title("PostgreSQL connection string").
-					Description("Examples:\n  Remote: postgres://user:pass@host:5432/dbname?sslmode=require\n  Local:  host=/run/postgresql dbname=enplace").
+					Description("Examples:\n  Local:  host=/var/run/postgresql dbname=enplace\n  Remote: postgres://user:pass@host:5432/dbname?sslmode=require").
 					Value(&dsn).
 					Validate(func(s string) error {
 						s = strings.TrimSpace(s)

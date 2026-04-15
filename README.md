@@ -208,14 +208,14 @@ To use a PostgreSQL database instead, open the configuration screen with `enplac
 Connection string formats:
 
 ```
+# Local Unix socket (simplest — no password required for peer auth)
+host=/var/run/postgresql dbname=enplace
+
+# Local Unix socket (URL form)
+postgres:///enplace?host=/var/run/postgresql
+
 # Remote with TLS
 postgres://user:password@host:5432/dbname?sslmode=require
-
-# Local Unix socket (key=value)
-host=/run/postgresql dbname=enplace
-
-# Local Unix socket (URL, no host)
-postgres:///enplace
 ```
 
 On first launch with a PostgreSQL DSN configured, enplace connects, runs migrations, and prompts you to import any existing local recipes. After a successful import the local SQLite data is cleared. The SQLite file itself is not deleted.

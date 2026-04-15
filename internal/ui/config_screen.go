@@ -79,7 +79,7 @@ func newConfigModel(cfg *config.Config, configPath, logPath string) ConfigModel 
 	}
 
 	pg := textinput.New()
-	pg.Placeholder = "postgres://user:pass@host:5432/dbname  (leave blank for local SQLite)"
+	pg.Placeholder = "host=/var/run/postgresql dbname=enplace  (leave blank for local SQLite)"
 	pg.SetValue(cfg.PostgresDSN)
 	m.postgresDSNInput = pg
 
