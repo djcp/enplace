@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 const (
 	DefaultModel       = "claude-haiku-4-5-20251001"
 	DefaultMaxLogLines = 10_000
+	DefaultLogLevel    = "info"
 	ConfigDirName      = "enplace"
 	ConfigFile         = "config.json"
 	DBFile             = "recipes.db"
@@ -33,6 +35,24 @@ type Config struct {
 	// PostgresDSN is the PostgreSQL connection string. When set, enplace uses
 	// PostgreSQL instead of local SQLite.
 	PostgresDSN string `json:"postgres_dsn,omitempty"`
+	// LogLevel controls the minimum severity written to the log file.
+	// Valid values: "debug", "info", "warn", "error". Defaults to "info".
+	LogLevel string `json:"log_level,omitempty"`
+}
+
+// SlogLevel converts the LogLevel string to a slog.Level.
+// Unrecognized or empty values fall back to slog.LevelInfo.
+func (c *Config) SlogLevel() slog.Level {
+	switch strings.ToLower(c.LogLevel) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // Driver returns "postgres" when PostgresDSN is set, "sqlite3" otherwise.
@@ -108,6 +128,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.MaxLogLines == 0 {
 		cfg.MaxLogLines = DefaultMaxLogLines
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
 	}
 
 	return &cfg, nil
@@ -201,5 +224,6 @@ func defaultConfig() (*Config, error) {
 		AnthropicModel: DefaultModel,
 		DBPath:         dbPath,
 		MaxLogLines:    DefaultMaxLogLines,
+		LogLevel:       DefaultLogLevel,
 	}, nil
 }

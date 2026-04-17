@@ -4,12 +4,86 @@ package scaling
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
 
 	"github.com/djcp/enplace/internal/models"
 )
+
+// debugHydration logs a detailed hydration calculation trace to the application
+// log via slog.Default(). Remove this function and its call in BreadMetrics when done.
+func debugHydration(ingredients []models.RecipeIngredient, res BreadMetricsResult) {
+	log := slog.Default()
+
+	// Per-ingredient breakdown.
+	for _, ing := range ingredients {
+		qty := "nil"
+		if ing.QuantityNumeric != nil {
+			qty = fmt.Sprintf("%.4f", *ing.QuantityNumeric)
+		}
+		unitWt := "nil"
+		if ing.UnitWeightG != nil {
+			unitWt = fmt.Sprintf("%.2f", *ing.UnitWeightG)
+		}
+		g, ok := effectiveWeightGrams(ing)
+		gramsStr := "n/a"
+		if ok {
+			gramsStr = fmt.Sprintf("%.2f", g)
+		}
+		ingType := ing.IngredientType
+		if ingType == "" {
+			ingType = "(blank)"
+		}
+
+		var dryContrib, wetContrib float64
+		if ok {
+			switch ing.IngredientType {
+			case "flour", "dry":
+				dryContrib = g
+			case "wet":
+				wetContrib = g
+			case "starter":
+				dryContrib = g / 2
+				wetContrib = g / 2
+			}
+		}
+
+		log.Debug("hydration ingredient",
+			"name", ing.IngredientName,
+			"type", ingType,
+			"quantity", qty,
+			"unit", ing.Unit,
+			"unit_weight_g", unitWt,
+			"grams", gramsStr,
+			"dry_contrib", fmt.Sprintf("%.2f", dryContrib),
+			"wet_contrib", fmt.Sprintf("%.2f", wetContrib),
+		)
+	}
+
+	// Totals and result.
+	log.Debug("hydration totals",
+		"flour_g", fmt.Sprintf("%.2f", res.TotalFlourGrams),
+		"dry_g", fmt.Sprintf("%.2f", res.TotalDryGrams),
+		"wet_g", fmt.Sprintf("%.2f", res.TotalWetGrams),
+		"fat_g", fmt.Sprintf("%.2f", res.TotalFatGrams),
+		"starter_count", res.StarterCount,
+		"excluded_count", res.ExcludedCount,
+		"hydration_pct", fmt.Sprintf("%.2f", res.HydrationPct),
+		"total_dough_g", fmt.Sprintf("%.2f", res.TotalDryGrams+res.TotalWetGrams+res.TotalFatGrams),
+	)
+
+	// Baker's percentages.
+	for _, p := range res.PerIngredient {
+		log.Debug("hydration bakers_pct",
+			"name", p.Name,
+			"type", p.Type,
+			"weight_g", fmt.Sprintf("%.2f", p.WeightGrams),
+			"pct_of_flour", fmt.Sprintf("%.1f", p.Percentage),
+		)
+	}
+}
 
 // weightUnitsToGrams maps lower-cased unit strings to their gram multiplier.
 var weightUnitsToGrams = map[string]float64{
@@ -440,5 +514,6 @@ func BreadMetrics(ingredients []models.RecipeIngredient) (BreadMetricsResult, er
 		}
 	}
 
+	debugHydration(ingredients, res) // TODO: remove when debugging is done
 	return res, nil
 }

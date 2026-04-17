@@ -20,6 +20,7 @@ const (
 	cfModel
 	cfPostgresDSN
 	cfMaxLogLines
+	cfLogLevel
 	cfCount
 )
 
@@ -28,6 +29,8 @@ var modelOptions = []string{
 	"claude-sonnet-4-6",
 	"claude-opus-4-6",
 }
+
+var logLevelOptions = []string{"debug", "info", "warn", "error"}
 
 // ConfigModel is a full-screen interactive configuration editor.
 type ConfigModel struct {
@@ -44,8 +47,10 @@ type ConfigModel struct {
 	modelIdx         int // index into modelOptions
 	postgresDSNInput textinput.Model
 	maxLogLinesInput textinput.Model
+	logLevelIdx      int // index into logLevelOptions
 	validationErr    string
-	dsnNotice        string
+	restartNotices   []string // messages shown in the restart modal after save
+	showRestartModal bool
 
 	saved bool
 }
@@ -74,6 +79,14 @@ func newConfigModel(cfg *config.Config, configPath, logPath string) ConfigModel 
 	for i, opt := range modelOptions {
 		if opt == cfg.AnthropicModel {
 			m.modelIdx = i
+			break
+		}
+	}
+
+	m.logLevelIdx = 1 // default: "info"
+	for i, opt := range logLevelOptions {
+		if opt == cfg.LogLevel {
+			m.logLevelIdx = i
 			break
 		}
 	}
@@ -140,6 +153,11 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Any key dismisses the restart modal (config was already saved).
+	if m.showRestartModal {
+		return m, tea.Quit
+	}
+
 	switch msg.String() {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
@@ -162,11 +180,23 @@ func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.focus == cfLogLevel {
+			if m.logLevelIdx > 0 {
+				m.logLevelIdx--
+			}
+			return m, nil
+		}
 
 	case "right":
 		if m.focus == cfModel {
 			if m.modelIdx < len(modelOptions)-1 {
 				m.modelIdx++
+			}
+			return m, nil
+		}
+		if m.focus == cfLogLevel {
+			if m.logLevelIdx < len(logLevelOptions)-1 {
+				m.logLevelIdx++
 			}
 			return m, nil
 		}
@@ -224,14 +254,20 @@ func (m ConfigModel) doSave() (tea.Model, tea.Cmd) {
 
 	// Validate PostgreSQL DSN if provided.
 	newDSN := strings.TrimSpace(m.postgresDSNInput.Value())
+	var restartNotices []string
 	if newDSN != "" && newDSN != m.cfg.PostgresDSN {
 		if connErr := db.TestPostgresConnection(newDSN); connErr != nil {
 			m.validationErr = fmt.Sprintf("PostgreSQL connection failed: %v", connErr)
 			return m, nil
 		}
-		m.dsnNotice = "PostgreSQL configured — restart to apply"
+		restartNotices = append(restartNotices, "PostgreSQL configured — restart to apply")
 	} else if newDSN == "" && m.cfg.PostgresDSN != "" {
-		m.dsnNotice = "Using local SQLite on next launch"
+		restartNotices = append(restartNotices, "Switched to local SQLite — restart to apply")
+	}
+
+	newLevel := logLevelOptions[m.logLevelIdx]
+	if newLevel != m.cfg.LogLevel {
+		restartNotices = append(restartNotices, "Log level changed — restart to apply")
 	}
 
 	m.validationErr = ""
@@ -240,8 +276,35 @@ func (m ConfigModel) doSave() (tea.Model, tea.Cmd) {
 	m.cfg.AnthropicModel = modelOptions[m.modelIdx]
 	m.cfg.PostgresDSN = newDSN
 	m.cfg.MaxLogLines = n
+	m.cfg.LogLevel = newLevel
 	m.saved = true
+
+	if len(restartNotices) > 0 {
+		m.restartNotices = restartNotices
+		m.showRestartModal = true
+		return m, nil
+	}
 	return m, tea.Quit
+}
+
+func (m ConfigModel) viewRestartModal() string {
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("Configuration saved"),
+		"",
+	}
+	for _, notice := range m.restartNotices {
+		lines = append(lines, MutedStyle.Render("· "+notice))
+	}
+	lines = append(lines, "")
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorFaint).Render("Press any key to close"))
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorPrimary).
+		Padding(1, 3).
+		Render(inner)
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box)
 }
 
 func (m ConfigModel) View() string {
@@ -253,6 +316,19 @@ func (m ConfigModel) View() string {
 
 	sb.WriteString(renderConfigBanner(m.width))
 	sb.WriteString("\n\n")
+
+	if m.showRestartModal {
+		sb.WriteString("\n\n")
+		sb.WriteString(m.viewRestartModal())
+		sb.WriteString("\n")
+		used := strings.Count(sb.String(), "\n")
+		if fill := m.height - used - 3; fill > 0 {
+			sb.WriteString(strings.Repeat("\n", fill))
+		}
+		sb.WriteString("\n")
+		sb.WriteString(renderConfigFooter(m.width))
+		return sb.String()
+	}
 
 	inputBoxStyle := func(focused bool) lipgloss.Style {
 		bc := ColorBorder
@@ -314,6 +390,18 @@ func (m ConfigModel) View() string {
 		sb.WriteString("\n")
 		sb.WriteString(ErrorStyle.Render("    "+m.validationErr) + "\n")
 	}
+	sb.WriteString("\n")
+
+	// Log level
+	sb.WriteString("    " + fieldLabel("Log level", m.focus == cfLogLevel) + "\n")
+	var logLevelRow string
+	if m.focus == cfLogLevel {
+		logLevelRow = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("◀ " + logLevelOptions[m.logLevelIdx] + " ▶")
+	} else {
+		logLevelRow = MutedStyle.Render("◀ " + logLevelOptions[m.logLevelIdx] + " ▶")
+	}
+	sb.WriteString("    " + logLevelRow + "\n")
+	sb.WriteString("    " + MutedStyle.Render("debug includes detailed extraction and hydration traces.") + "\n")
 	sb.WriteString("\n")
 
 	// Read-only info

@@ -148,7 +148,7 @@ Opened with `m` from the list or detail view. A landing screen with five section
 
 | Section | What you can do |
 |---------|-----------------|
-| Configure | Update API key, AI model, and credits on exported recipes |
+| Configure | Update API key, AI model, credits, PostgreSQL DSN, max log lines, and log level |
 | Tags | Browse tags by context; rename, merge, or delete |
 | Ingredients | Search and browse ingredients with usage counts; rename or merge |
 | Serving Units | Browse serving units with usage counts; rename or merge |
@@ -191,7 +191,9 @@ Accessible via `e` from the list or detail view, or via "Enter manually" in the 
 
 ### config
 
-Displays and edits the current configuration: API key (masked), AI model, and export credits line. The model cycles with `◄`/`►`; `ctrl+s` saves, `esc` cancels. Database path and config file location are shown below the editable fields.
+Displays and edits the current configuration: API key (masked), AI model, export credits line, PostgreSQL DSN, max log lines, and log level. The model and log level cycle with `◄`/`►`; `ctrl+s` saves, `esc` cancels. Database path, log file location, and config file location are shown below the editable fields.
+
+Changes to **log level** and **PostgreSQL DSN** take effect on the next launch — a modal notice appears after saving to confirm.
 
 Also accessible from the interactive browser via `m` → **Configure**.
 
@@ -258,18 +260,27 @@ On first run, `enplace` prompts for an Anthropic API key and writes:
 
 ```
 ~/.config/enplace/config.json   — API key, model name, database path
-~/.local/share/enplace/         — SQLite database directory
+~/.local/share/enplace/         — SQLite database directory and log file
 ```
 
 Both paths follow the XDG Base Directory spec. Set `XDG_CONFIG_HOME` or `XDG_DATA_HOME` to override.
 
-The model defaults to `claude-haiku-4-5-20251001`. To use a more capable model:
+Run `enplace config` to open the interactive configuration screen, or edit `config.json` directly. Available settings:
 
-```sh
-enplace config
-```
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `anthropic_api_key` | — | Required. Get one at console.anthropic.com |
+| `anthropic_model` | `claude-haiku-4-5-20251001` | Cycles with `◄`/`►` in the config screen |
+| `credits` | — | Shown in the footer of exported files (e.g. `Chef Jane · myrecipeblog.com`) |
+| `postgres_dsn` | — | Leave blank to use local SQLite |
+| `max_log_lines` | `10000` | Log file is trimmed to this many lines on startup |
+| `log_level` | `info` | One of `debug`, `info`, `warn`, `error` |
 
-Or edit `config.json` directly and set `"anthropic_model"` to any Claude model ID.
+### Log level and hydration debugging
+
+Setting `log_level` to `debug` writes detailed traces to `~/.local/share/enplace/enplace.log`, including a step-by-step breakdown of every hydration calculation: each ingredient's type, gram weight, and its individual contribution to the wet and dry totals, followed by the final hydration percentage and baker's percentages. This is useful for verifying that ingredients are correctly classified and understanding exactly how a recipe's hydration figure is derived.
+
+Changes to `log_level` take effect on the next launch.
 
 ## Data model
 

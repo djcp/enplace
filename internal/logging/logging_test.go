@@ -1,6 +1,7 @@
 package logging_test
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ func TestOpen_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.log")
 
-	logger, f, err := logging.Open(path, 100)
+	logger, f, err := logging.Open(path, 100, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestOpen_CreatesParentDirectory(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "deep", "app.log")
 
-	_, f, err := logging.Open(path, 100)
+	_, f, err := logging.Open(path, 100, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestOpen_TrimsToMaxLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, f, err := logging.Open(path, 10)
+	_, f, err := logging.Open(path, 10, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestOpen_DoesNotTrimWhenUnderLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, f, err := logging.Open(path, 100)
+	_, f, err := logging.Open(path, 100, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestOpen_AppendsToExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logger, f, err := logging.Open(path, 1000)
+	logger, f, err := logging.Open(path, 1000, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestGooseLogger_WritesToLog(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.log")
 
-	logger, f, err := logging.Open(path, 1000)
+	logger, f, err := logging.Open(path, 1000, slog.LevelDebug)
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}

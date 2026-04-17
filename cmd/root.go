@@ -73,11 +73,12 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "Error resolving log path: %v\n", err)
 		os.Exit(1)
 	}
-	logger, logFile, err = logging.Open(logPath, cfg.MaxLogLines)
+	logger, logFile, err = logging.Open(logPath, cfg.MaxLogLines, cfg.SlogLevel())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening log file: %v\n", err)
 		os.Exit(1)
 	}
+	slog.SetDefault(logger)
 	Root.PersistentPostRun = func(_ *cobra.Command, _ []string) { logFile.Close() }
 }
 

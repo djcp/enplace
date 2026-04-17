@@ -104,6 +104,31 @@ Integration tests are in `internal/db/migrate_postgres_test.go` with a `//go:bui
 TEST_POSTGRES_DSN="postgres://..." go test -tags integration ./internal/db/...
 ```
 
+## Logging (`internal/logging/logging.go`)
+
+### Log level
+
+`logging.Open(logPath string, maxLines int, level slog.Level)` creates a `slog.TextHandler` at the given level. The level comes from `cfg.SlogLevel()` in `initConfig` (`cmd/root.go`), which reads `Config.LogLevel` (a string: `"debug"`, `"info"`, `"warn"`, `"error"`). The default is `"info"`.
+
+The level is set once at startup — changing it in the config screen takes effect on the next launch. The config screen shows a restart-required modal after saving when the log level (or PostgreSQL DSN) changes.
+
+### Log level audit — what belongs at each level
+
+| Level | Used for |
+|-------|---------|
+| `Error` | Goose migration failures (`gooseAdapter.Fatalf`) |
+| `Warn` | Non-fatal startup failures: backfill errors, unable to check SQLite recipe count |
+| `Info` | Significant lifecycle events: migration started/complete, backup started/complete, SQLite cleanup started/complete |
+| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces |
+
+The hydration debug traces (`debugHydration` in `internal/scaling/scaling.go`) log per-ingredient type, gram weight, dry/wet contribution, totals, hydration percentage, and baker's percentages. They are gated at `Debug` so they are invisible at the default `Info` level and only appear when the user explicitly sets `log_level = "debug"` in their config.
+
+### Restart-required modal in the config screen
+
+After `ctrl+s` in the config screen (`internal/ui/config_screen.go`), if any restart-required setting changed (currently: log level or PostgreSQL DSN), `doSave()` collects the notices into `m.restartNotices`, sets `m.showRestartModal = true`, and returns **without** `tea.Quit`. `View()` renders a centered rounded-border modal showing "Configuration saved" plus bullet points for each notice. Any keypress dismisses the modal and exits.
+
+This pattern avoids the previous approach of setting `m.dsnNotice` (a dead field that was never rendered) and instead surfaces all restart notices through one consistent modal.
+
 ## UI / lipgloss rendering
 
 ### Centering multi-line blocks (dialogs, forms, overlays)

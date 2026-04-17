@@ -32,7 +32,7 @@ func MigrateToPostgres(sqlite *DB, pg *DB, logger *slog.Logger) (MigrationResult
 	if err != nil {
 		return result, fmt.Errorf("listing sqlite recipes: %w", err)
 	}
-	logger.Info("migration check", "sqlite_recipe_count", len(summaries))
+	logger.Debug("migration check", "sqlite_recipe_count", len(summaries))
 
 	for _, summary := range summaries {
 		r, err := GetRecipe(sqlite, summary.ID)
@@ -47,7 +47,7 @@ func MigrateToPostgres(sqlite *DB, pg *DB, logger *slog.Logger) (MigrationResult
 				return result, fmt.Errorf("checking duplicate url for recipe %d: %w", r.ID, err)
 			}
 			if existing != nil {
-				logger.Info("migration skipped duplicate", "recipe", r.Name, "url", r.SourceURL)
+				logger.Debug("migration skipped duplicate", "recipe", r.Name, "url", r.SourceURL)
 				result.Skipped++
 				continue
 			}
@@ -68,7 +68,7 @@ func MigrateToPostgres(sqlite *DB, pg *DB, logger *slog.Logger) (MigrationResult
 		}
 		newID := r.ID
 
-		logger.Info("migration imported recipe", "name", r.Name, "old_id", oldID, "new_id", newID)
+		logger.Debug("migration imported recipe", "name", r.Name, "old_id", oldID, "new_id", newID)
 
 		// Copy AI runs.
 		if err := copyAIRuns(sqlite, pg, oldID, newID, logger); err != nil {
@@ -111,7 +111,7 @@ func copyAIRuns(sqlite *DB, pg *DB, oldRecipeID, newRecipeID int64, logger *slog
 			return fmt.Errorf("inserting ai run: %w", err)
 		}
 	}
-	logger.Info("migration copied ai runs", "recipe_old_id", oldRecipeID, "count", len(runs))
+	logger.Debug("migration copied ai runs", "recipe_old_id", oldRecipeID, "count", len(runs))
 	return nil
 }
 
@@ -135,7 +135,7 @@ func ClearSQLiteData(sqlite *DB, logger *slog.Logger) error {
 			return fmt.Errorf("clearing %s: %w", table, err)
 		}
 		n, _ := res.RowsAffected()
-		logger.Info("sqlite cleanup", "table", table, "rows_deleted", n)
+		logger.Debug("sqlite cleanup", "table", table, "rows_deleted", n)
 	}
 	logger.Info("sqlite cleanup complete")
 	return nil
