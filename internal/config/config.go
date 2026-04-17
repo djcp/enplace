@@ -3,13 +3,17 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
 	DefaultModel       = "claude-haiku-4-5-20251001"
 	DefaultMaxLogLines = 10_000
+	DefaultLogLevel    = "info"
 	ConfigDirName      = "enplace"
 	ConfigFile         = "config.json"
 	DBFile             = "recipes.db"
@@ -28,6 +32,68 @@ type Config struct {
 	// on startup it is trimmed, keeping the most recent entries. 0 means use
 	// DefaultMaxLogLines.
 	MaxLogLines int `json:"max_log_lines,omitempty"`
+	// PostgresDSN is the PostgreSQL connection string. When set, enplace uses
+	// PostgreSQL instead of local SQLite.
+	PostgresDSN string `json:"postgres_dsn,omitempty"`
+	// LogLevel controls the minimum severity written to the log file.
+	// Valid values: "debug", "info", "warn", "error". Defaults to "info".
+	LogLevel string `json:"log_level,omitempty"`
+}
+
+// SlogLevel converts the LogLevel string to a slog.Level.
+// Unrecognized or empty values fall back to slog.LevelInfo.
+func (c *Config) SlogLevel() slog.Level {
+	switch strings.ToLower(c.LogLevel) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// Driver returns "postgres" when PostgresDSN is set, "sqlite3" otherwise.
+func (c *Config) Driver() string {
+	if c.PostgresDSN != "" {
+		return "postgres"
+	}
+	return "sqlite3"
+}
+
+// MaskDSN returns a display-safe version of a postgres DSN with credentials removed.
+// URL format:  postgres://user:pass@host:5432/db?sslmode=require  →  postgres://host:5432/db
+// Key=value:   host=myhost user=dan password=s3cr3t dbname=mydb   →  host=myhost dbname=mydb
+// Falls back to first 30 chars + "…" if parsing fails.
+func MaskDSN(dsn string) string {
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" {
+		return ""
+	}
+	// Try URL format
+	if u, err := url.Parse(dsn); err == nil && u.Host != "" {
+		u.User = nil
+		return u.String()
+	}
+	// Key=value format: drop user= and password= pairs
+	var kept []string
+	for _, part := range strings.Fields(dsn) {
+		key := strings.ToLower(strings.SplitN(part, "=", 2)[0])
+		if key == "user" || key == "password" {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	if len(kept) > 0 {
+		return strings.Join(kept, " ")
+	}
+	// Fallback
+	if len(dsn) > 30 {
+		return dsn[:30] + "…"
+	}
+	return dsn
 }
 
 // Load reads config from the XDG config directory.
@@ -62,6 +128,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.MaxLogLines == 0 {
 		cfg.MaxLogLines = DefaultMaxLogLines
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
 	}
 
 	return &cfg, nil
@@ -155,5 +224,6 @@ func defaultConfig() (*Config, error) {
 		AnthropicModel: DefaultModel,
 		DBPath:         dbPath,
 		MaxLogLines:    DefaultMaxLogLines,
+		LogLevel:       DefaultLogLevel,
 	}, nil
 }

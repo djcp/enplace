@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/db"
-	"github.com/jmoiron/sqlx"
 )
 
 type manageIngPhase int
@@ -23,7 +22,7 @@ const (
 
 // manageIngredientsModel is the TUI model for ingredient management.
 type manageIngredientsModel struct {
-	sqlDB *sqlx.DB
+	sqlDB *db.DB
 
 	phase manageIngPhase
 
@@ -55,7 +54,7 @@ type manageIngredientsModel struct {
 	height int
 }
 
-func newManageIngredientsModel(sqlDB *sqlx.DB) manageIngredientsModel {
+func newManageIngredientsModel(sqlDB *db.DB) manageIngredientsModel {
 	si := textinput.New()
 	si.Placeholder = "search ingredients..."
 	si.Width = 30
@@ -462,7 +461,7 @@ func (m manageIngredientsModel) viewResult() string {
 }
 
 // RunManageIngredientsUI runs the ingredients management TUI.
-func RunManageIngredientsUI(sqlDB *sqlx.DB) error {
+func RunManageIngredientsUI(sqlDB *db.DB) error {
 	m := newManageIngredientsModel(sqlDB)
 	if err := m.loadIngredients(); err != nil {
 		return err

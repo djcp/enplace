@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 type manageTagsPhase int
@@ -26,7 +25,7 @@ const (
 
 // manageTagsModel is the TUI model for the tags management screen.
 type manageTagsModel struct {
-	sqlDB *sqlx.DB
+	sqlDB *db.DB
 
 	phase manageTagsPhase
 
@@ -65,7 +64,7 @@ type manageTagsModel struct {
 	height int
 }
 
-func newManageTagsModel(sqlDB *sqlx.DB) manageTagsModel {
+func newManageTagsModel(sqlDB *db.DB) manageTagsModel {
 	return manageTagsModel{sqlDB: sqlDB, width: 80, height: 24}
 }
 
@@ -540,7 +539,7 @@ func (m manageTagsModel) viewResult() string {
 }
 
 // RunManageTagsUI runs the tags management TUI.
-func RunManageTagsUI(sqlDB *sqlx.DB) error {
+func RunManageTagsUI(sqlDB *db.DB) error {
 	m := newManageTagsModel(sqlDB)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

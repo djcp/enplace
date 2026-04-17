@@ -6,7 +6,6 @@ import (
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
 	"github.com/djcp/enplace/internal/services"
-	"github.com/jmoiron/sqlx"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -206,7 +205,7 @@ func TestApplyExtractedRecipe_ReplacesIngredients(t *testing.T) {
 	}
 }
 
-func mustOpenMemory(t *testing.T) *sqlx.DB {
+func mustOpenMemory(t *testing.T) *db.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
 	if err != nil {

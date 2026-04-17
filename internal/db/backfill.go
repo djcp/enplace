@@ -4,14 +4,13 @@ import (
 	"fmt"
 
 	"github.com/djcp/enplace/internal/scaling"
-	"github.com/jmoiron/sqlx"
 )
 
 // BackfillQuantityNumeric populates quantity_numeric for any recipe_ingredients
 // rows where it is NULL and quantity is non-empty. Safe to call at every startup:
 // it is a no-op once all rows are populated. Uses a single transaction with a
 // prepared statement so the entire backfill is one atomic disk write.
-func BackfillQuantityNumeric(sqlDB *sqlx.DB) error {
+func BackfillQuantityNumeric(sqlDB *DB) error {
 	var rows []struct {
 		ID       int64  `db:"id"`
 		Quantity string `db:"quantity"`
@@ -33,7 +32,7 @@ func BackfillQuantityNumeric(sqlDB *sqlx.DB) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.Prepare(`UPDATE recipe_ingredients SET quantity_numeric = ? WHERE id = ?`)
+	stmt, err := tx.Prepare(sqlDB.Rebind(`UPDATE recipe_ingredients SET quantity_numeric = ? WHERE id = ?`))
 	if err != nil {
 		return fmt.Errorf("backfill prepare: %w", err)
 	}
@@ -58,7 +57,7 @@ func BackfillQuantityNumeric(sqlDB *sqlx.DB) error {
 //
 // All other existing type values are left unchanged. Safe to call at every
 // startup: rows that already carry the correct type are not touched.
-func BackfillIngredientTypes(sqlDB *sqlx.DB) error {
+func BackfillIngredientTypes(sqlDB *DB) error {
 	// Patterns that identify flour ingredients by name.
 	flourPatterns := []string{
 		"%flour%",
@@ -82,7 +81,7 @@ func BackfillIngredientTypes(sqlDB *sqlx.DB) error {
 
 	for _, p := range flourPatterns {
 		if _, err := tx.Exec(
-			`UPDATE ingredients SET ingredient_type = 'flour' WHERE ingredient_type = 'dry' AND name LIKE ?`,
+			sqlDB.Rebind(`UPDATE ingredients SET ingredient_type = 'flour' WHERE ingredient_type = 'dry' AND name LIKE ?`),
 			p,
 		); err != nil {
 			return fmt.Errorf("backfill flour pattern %q: %w", p, err)
@@ -91,7 +90,7 @@ func BackfillIngredientTypes(sqlDB *sqlx.DB) error {
 
 	for _, p := range fatPatterns {
 		if _, err := tx.Exec(
-			`UPDATE ingredients SET ingredient_type = 'fat' WHERE ingredient_type IN ('wet', '') AND name = ?`,
+			sqlDB.Rebind(`UPDATE ingredients SET ingredient_type = 'fat' WHERE ingredient_type IN ('wet', '') AND name = ?`),
 			p,
 		); err != nil {
 			return fmt.Errorf("backfill fat pattern %q: %w", p, err)

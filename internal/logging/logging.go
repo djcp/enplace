@@ -16,10 +16,10 @@ import (
 
 // Open opens (or creates) the log file at logPath, trims it to at most
 // maxLines lines if it has grown beyond that, and returns an *slog.Logger
-// that appends to it in logfmt format.
+// that appends to it in logfmt format at the given minimum level.
 //
 // The caller is responsible for closing the returned *os.File when done.
-func Open(logPath string, maxLines int) (*slog.Logger, *os.File, error) {
+func Open(logPath string, maxLines int, level slog.Level) (*slog.Logger, *os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return nil, nil, fmt.Errorf("creating log directory: %w", err)
 	}
@@ -34,7 +34,7 @@ func Open(logPath string, maxLines int) (*slog.Logger, *os.File, error) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: level,
 	}))
 
 	return logger, f, nil
@@ -54,7 +54,7 @@ func (a *gooseAdapter) Fatalf(format string, v ...interface{}) {
 }
 
 func (a *gooseAdapter) Printf(format string, v ...interface{}) {
-	a.logger.Info(fmt.Sprintf(format, v...))
+	a.logger.Debug(fmt.Sprintf(format, v...))
 }
 
 // trimFile rewrites path keeping only the last maxLines lines.

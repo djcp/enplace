@@ -1,0 +1,5 @@
+-- +goose Up
+ALTER TABLE recipes ADD COLUMN IF NOT EXISTS is_bread BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- +goose Down
+ALTER TABLE recipes DROP COLUMN IF EXISTS is_bread;

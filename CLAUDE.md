@@ -57,6 +57,78 @@ gh release create v1.0.x-alpha \
 
 That's it. GitHub Actions will cross-compile for all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64) and attach the archives and MD5 checksums to the release automatically.
 
+## Database layer
+
+### `*db.DB` wrapper type
+
+`internal/db/db.go` defines a `DB` struct that embeds `*sqlx.DB` and overrides `Get`, `Select`, `Exec`, and `QueryRow` to call `d.DB.Rebind(query)` before executing. This means all callers can write `?` placeholders universally — the wrapper translates them to `$1/$2/…` for PostgreSQL automatically.
+
+Key methods on `*db.DB`:
+- `Driver()` — returns `"postgres"` or `"sqlite3"`
+- `insertReturningID(query, args...)` — uses `RETURNING id` on postgres, `LastInsertId()` on sqlite
+- `onConflictDoNothing(query)` — prepends `INSERT OR IGNORE` on sqlite, appends `ON CONFLICT DO NOTHING` on postgres
+
+### Dialect-specific query callsites
+
+Two places cannot be handled by the wrapper's auto-rebind and require explicit branching:
+
+1. **`GetRecipeByURL`** — SQLite uses `COLLATE NOCASE`, PostgreSQL uses `LOWER(source_url) = LOWER($1)`. The query is built with `if db.Driver() == "postgres"` and passed directly to `db.DB.Get` (bypassing the wrapper's rebind since the pg variant uses `$1`).
+
+2. **`AttachTag` / `MergeTag`** — INSERT idempotency: `onConflictDoNothing` wraps the query string before passing to `db.Exec`.
+
+### `execTx` callbacks need explicit `db.Rebind()`
+
+The `execTx` helper in `manage_queries.go` uses raw `*sql.Tx` (obtained via `db.Begin()`). A raw `*sql.Tx` bypasses the `*db.DB` wrapper — there is no automatic rebind. Every query string inside a tx callback must be wrapped with `db.Rebind(query)` before passing to `tx.Exec`.
+
+### Migration directories
+
+- `internal/db/migrations/sqlite/` — 5 goose files for SQLite schema
+- `internal/db/migrations/postgres/` — 5 parallel goose files with PostgreSQL-compatible DDL (`BIGSERIAL`, `TIMESTAMPTZ`, `BOOLEAN`, partial unique index on `LOWER()`)
+
+Both directories are embedded via `//go:embed` in `db.go`. Goose's `goose_db_version` table is the schema_migrations equivalent — it is managed automatically.
+
+### `MigrateToPostgres`
+
+Uses `SaveRecipe` (the normal find-or-create path) to copy recipes, not a bulk INSERT. This means:
+- Ingredient and tag deduplication works correctly when postgres already has some data
+- Duplicate URLs are skipped (`GetRecipeByURL` check before each recipe)
+- `r.ID = 0` before calling `SaveRecipe` forces the `CreateRecipe` path
+
+After a successful migration, call `ClearSQLiteData` to remove all data from the SQLite file (schema and file are preserved).
+
+### Integration tests
+
+Integration tests are in `internal/db/migrate_postgres_test.go` with a `//go:build integration` tag. They are skipped unless `TEST_POSTGRES_DSN` env var is set. Run with:
+
+```sh
+TEST_POSTGRES_DSN="postgres://..." go test -tags integration ./internal/db/...
+```
+
+## Logging (`internal/logging/logging.go`)
+
+### Log level
+
+`logging.Open(logPath string, maxLines int, level slog.Level)` creates a `slog.TextHandler` at the given level. The level comes from `cfg.SlogLevel()` in `initConfig` (`cmd/root.go`), which reads `Config.LogLevel` (a string: `"debug"`, `"info"`, `"warn"`, `"error"`). The default is `"info"`.
+
+The level is set once at startup — changing it in the config screen takes effect on the next launch. The config screen shows a restart-required modal after saving when the log level (or PostgreSQL DSN) changes.
+
+### Log level audit — what belongs at each level
+
+| Level | Used for |
+|-------|---------|
+| `Error` | Goose migration failures (`gooseAdapter.Fatalf`) |
+| `Warn` | Non-fatal startup failures: backfill errors, unable to check SQLite recipe count |
+| `Info` | Significant lifecycle events: migration started/complete, backup started/complete, SQLite cleanup started/complete |
+| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces |
+
+The hydration debug traces (`debugHydration` in `internal/scaling/scaling.go`) log per-ingredient type, gram weight, dry/wet contribution, totals, hydration percentage, and baker's percentages. They are gated at `Debug` so they are invisible at the default `Info` level and only appear when the user explicitly sets `log_level = "debug"` in their config.
+
+### Restart-required modal in the config screen
+
+After `ctrl+s` in the config screen (`internal/ui/config_screen.go`), if any restart-required setting changed (currently: log level or PostgreSQL DSN), `doSave()` collects the notices into `m.restartNotices`, sets `m.showRestartModal = true`, and returns **without** `tea.Quit`. `View()` renders a centered rounded-border modal showing "Configuration saved" plus bullet points for each notice. Any keypress dismisses the modal and exits.
+
+This pattern avoids the previous approach of setting `m.dsnNotice` (a dead field that was never rendered) and instead surfaces all restart notices through one consistent modal.
+
 ## UI / lipgloss rendering
 
 ### Centering multi-line blocks (dialogs, forms, overlays)

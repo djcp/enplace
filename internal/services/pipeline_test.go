@@ -8,10 +8,9 @@ import (
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
 	"github.com/djcp/enplace/internal/services"
-	"github.com/jmoiron/sqlx"
 )
 
-func openPipelineDB(t *testing.T) *sqlx.DB {
+func openPipelineDB(t *testing.T) *db.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
 	if err != nil {

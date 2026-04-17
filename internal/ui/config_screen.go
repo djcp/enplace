@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/config"
+	"github.com/djcp/enplace/internal/db"
 )
 
 type configFocus int
@@ -17,7 +18,9 @@ const (
 	cfCredits configFocus = iota
 	cfAPIKey
 	cfModel
+	cfPostgresDSN
 	cfMaxLogLines
+	cfLogLevel
 	cfCount
 )
 
@@ -26,6 +29,8 @@ var modelOptions = []string{
 	"claude-sonnet-4-6",
 	"claude-opus-4-6",
 }
+
+var logLevelOptions = []string{"debug", "info", "warn", "error"}
 
 // ConfigModel is a full-screen interactive configuration editor.
 type ConfigModel struct {
@@ -40,8 +45,12 @@ type ConfigModel struct {
 	creditsInput     textinput.Model
 	apiKeyInput      textinput.Model
 	modelIdx         int // index into modelOptions
+	postgresDSNInput textinput.Model
 	maxLogLinesInput textinput.Model
+	logLevelIdx      int // index into logLevelOptions
 	validationErr    string
+	restartNotices   []string // messages shown in the restart modal after save
+	showRestartModal bool
 
 	saved bool
 }
@@ -74,6 +83,19 @@ func newConfigModel(cfg *config.Config, configPath, logPath string) ConfigModel 
 		}
 	}
 
+	m.logLevelIdx = 1 // default: "info"
+	for i, opt := range logLevelOptions {
+		if opt == cfg.LogLevel {
+			m.logLevelIdx = i
+			break
+		}
+	}
+
+	pg := textinput.New()
+	pg.Placeholder = "host=/var/run/postgresql dbname=enplace  (leave blank for local SQLite)"
+	pg.SetValue(cfg.PostgresDSN)
+	m.postgresDSNInput = pg
+
 	mll := textinput.New()
 	mll.Placeholder = strconv.Itoa(config.DefaultMaxLogLines)
 	mll.SetValue(strconv.Itoa(cfg.MaxLogLines))
@@ -93,6 +115,7 @@ func (m *ConfigModel) updateInputWidths() {
 	}
 	m.creditsInput.Width = w
 	m.apiKeyInput.Width = w
+	m.postgresDSNInput.Width = w
 	m.maxLogLinesInput.Width = 12 // numeric: fixed narrow width
 }
 
@@ -121,6 +144,8 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.creditsInput, cmd = m.creditsInput.Update(msg)
 	case cfAPIKey:
 		m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	case cfPostgresDSN:
+		m.postgresDSNInput, cmd = m.postgresDSNInput.Update(msg)
 	case cfMaxLogLines:
 		m.maxLogLinesInput, cmd = m.maxLogLinesInput.Update(msg)
 	}
@@ -128,6 +153,11 @@ func (m ConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Any key dismisses the restart modal (config was already saved).
+	if m.showRestartModal {
+		return m, tea.Quit
+	}
+
 	switch msg.String() {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
@@ -150,11 +180,23 @@ func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.focus == cfLogLevel {
+			if m.logLevelIdx > 0 {
+				m.logLevelIdx--
+			}
+			return m, nil
+		}
 
 	case "right":
 		if m.focus == cfModel {
 			if m.modelIdx < len(modelOptions)-1 {
 				m.modelIdx++
+			}
+			return m, nil
+		}
+		if m.focus == cfLogLevel {
+			if m.logLevelIdx < len(logLevelOptions)-1 {
+				m.logLevelIdx++
 			}
 			return m, nil
 		}
@@ -167,6 +209,8 @@ func (m ConfigModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.creditsInput, cmd = m.creditsInput.Update(msg)
 	case cfAPIKey:
 		m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	case cfPostgresDSN:
+		m.postgresDSNInput, cmd = m.postgresDSNInput.Update(msg)
 	case cfMaxLogLines:
 		m.maxLogLinesInput, cmd = m.maxLogLinesInput.Update(msg)
 	}
@@ -179,6 +223,8 @@ func (m ConfigModel) advanceFocus(dir int) ConfigModel {
 		m.creditsInput.Blur()
 	case cfAPIKey:
 		m.apiKeyInput.Blur()
+	case cfPostgresDSN:
+		m.postgresDSNInput.Blur()
 	case cfMaxLogLines:
 		m.maxLogLinesInput.Blur()
 	}
@@ -190,6 +236,8 @@ func (m ConfigModel) advanceFocus(dir int) ConfigModel {
 		m.creditsInput.Focus()
 	case cfAPIKey:
 		m.apiKeyInput.Focus()
+	case cfPostgresDSN:
+		m.postgresDSNInput.Focus()
 	case cfMaxLogLines:
 		m.maxLogLinesInput.Focus()
 	}
@@ -203,13 +251,60 @@ func (m ConfigModel) doSave() (tea.Model, tea.Cmd) {
 		m.validationErr = fmt.Sprintf("Max log lines must be a positive number (got %q)", raw)
 		return m, nil
 	}
+
+	// Validate PostgreSQL DSN if provided.
+	newDSN := strings.TrimSpace(m.postgresDSNInput.Value())
+	var restartNotices []string
+	if newDSN != "" && newDSN != m.cfg.PostgresDSN {
+		if connErr := db.TestPostgresConnection(newDSN); connErr != nil {
+			m.validationErr = fmt.Sprintf("PostgreSQL connection failed: %v", connErr)
+			return m, nil
+		}
+		restartNotices = append(restartNotices, "PostgreSQL configured — restart to apply")
+	} else if newDSN == "" && m.cfg.PostgresDSN != "" {
+		restartNotices = append(restartNotices, "Switched to local SQLite — restart to apply")
+	}
+
+	newLevel := logLevelOptions[m.logLevelIdx]
+	if newLevel != m.cfg.LogLevel {
+		restartNotices = append(restartNotices, "Log level changed — restart to apply")
+	}
+
 	m.validationErr = ""
 	m.cfg.Credits = strings.TrimSpace(m.creditsInput.Value())
 	m.cfg.AnthropicAPIKey = strings.TrimSpace(m.apiKeyInput.Value())
 	m.cfg.AnthropicModel = modelOptions[m.modelIdx]
+	m.cfg.PostgresDSN = newDSN
 	m.cfg.MaxLogLines = n
+	m.cfg.LogLevel = newLevel
 	m.saved = true
+
+	if len(restartNotices) > 0 {
+		m.restartNotices = restartNotices
+		m.showRestartModal = true
+		return m, nil
+	}
 	return m, tea.Quit
+}
+
+func (m ConfigModel) viewRestartModal() string {
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("Configuration saved"),
+		"",
+	}
+	for _, notice := range m.restartNotices {
+		lines = append(lines, MutedStyle.Render("· "+notice))
+	}
+	lines = append(lines, "")
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorFaint).Render("Press any key to close"))
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorPrimary).
+		Padding(1, 3).
+		Render(inner)
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box)
 }
 
 func (m ConfigModel) View() string {
@@ -221,6 +316,19 @@ func (m ConfigModel) View() string {
 
 	sb.WriteString(renderConfigBanner(m.width))
 	sb.WriteString("\n\n")
+
+	if m.showRestartModal {
+		sb.WriteString("\n\n")
+		sb.WriteString(m.viewRestartModal())
+		sb.WriteString("\n")
+		used := strings.Count(sb.String(), "\n")
+		if fill := m.height - used - 3; fill > 0 {
+			sb.WriteString(strings.Repeat("\n", fill))
+		}
+		sb.WriteString("\n")
+		sb.WriteString(renderConfigFooter(m.width))
+		return sb.String()
+	}
 
 	inputBoxStyle := func(focused bool) lipgloss.Style {
 		bc := ColorBorder
@@ -263,6 +371,17 @@ func (m ConfigModel) View() string {
 	sb.WriteString("    " + modelRow + "\n")
 	sb.WriteString("\n")
 
+	// PostgreSQL DSN
+	sb.WriteString("    " + fieldLabel("PostgreSQL DSN", m.focus == cfPostgresDSN) + "\n")
+	dsnDisplayInput := m.postgresDSNInput
+	if m.focus != cfPostgresDSN && m.cfg.PostgresDSN != "" {
+		// Show masked version when not actively editing
+		dsnDisplayInput.SetValue(config.MaskDSN(m.postgresDSNInput.Value()))
+	}
+	sb.WriteString(inputBoxStyle(m.focus == cfPostgresDSN).Render(dsnDisplayInput.View()) + "\n")
+	sb.WriteString("    " + MutedStyle.Render("Leave blank to use local SQLite.") + "\n")
+	sb.WriteString("\n")
+
 	// Max log lines
 	sb.WriteString("    " + fieldLabel("Max log lines", m.focus == cfMaxLogLines) + "\n")
 	sb.WriteString(inputBoxStyle(m.focus == cfMaxLogLines).Render(m.maxLogLinesInput.View()) + "\n")
@@ -273,6 +392,18 @@ func (m ConfigModel) View() string {
 	}
 	sb.WriteString("\n")
 
+	// Log level
+	sb.WriteString("    " + fieldLabel("Log level", m.focus == cfLogLevel) + "\n")
+	var logLevelRow string
+	if m.focus == cfLogLevel {
+		logLevelRow = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("◀ " + logLevelOptions[m.logLevelIdx] + " ▶")
+	} else {
+		logLevelRow = MutedStyle.Render("◀ " + logLevelOptions[m.logLevelIdx] + " ▶")
+	}
+	sb.WriteString("    " + logLevelRow + "\n")
+	sb.WriteString("    " + MutedStyle.Render("debug includes detailed extraction and hydration traces.") + "\n")
+	sb.WriteString("\n")
+
 	// Read-only info
 	labelW := 12
 	infoRow := func(label, value string) string {
@@ -280,8 +411,12 @@ func (m ConfigModel) View() string {
 		v := lipgloss.NewStyle().Foreground(ColorFaint).Render(value)
 		return "    " + l + "  " + v
 	}
+	dbDisplay := m.cfg.DBPath
+	if m.cfg.PostgresDSN != "" {
+		dbDisplay = config.MaskDSN(m.cfg.PostgresDSN)
+	}
 	sb.WriteString(infoRow("Config file", m.configPath) + "\n")
-	sb.WriteString(infoRow("Database", m.cfg.DBPath) + "\n")
+	sb.WriteString(infoRow("Database", dbDisplay) + "\n")
 	sb.WriteString(infoRow("Log file", m.logPath) + "\n")
 
 	// Fill remaining rows so the footer stays pinned.
