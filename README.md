@@ -27,6 +27,7 @@ The UI adapts to your terminal's color scheme.
 - **Quiet/scripted mode** — `add --quiet <url>` runs the pipeline silently and exits non-zero with an error on stderr on failure
 - **Onboarding** — prompts for an Anthropic API key on first run and stores it at `~/.config/enplace/config.json`
 - **Audit trail** — every AI call is recorded with its prompt, raw response, duration, and success/failure status; browsable and manageable via the manage screen
+- **Ratings and personal notes** — press `r` in the detail view to rate a recipe 1–5 stars using a selector menu; press `N` to open a freeform notes field. Ratings appear inline in the list view (★★★★☆) and a 📝 indicator appears when notes exist. The rating value is included in all export formats; notes are personal and never exported
 - **No external dependencies at runtime** — single static binary; SQLite is compiled in with no CGO requirement
 
 ## Commands
@@ -89,7 +90,7 @@ Opens a full-screen browser:
 | `h` | Clear filter and go home |
 | `q` / `esc` | Quit |
 
-The filter pane (right side) supports text search, course and cultural-influence tag filters, status, and a **Recipe type** toggle to show only bread/dough recipes. Bread recipes are marked with a 🍞 prefix in the list.
+The filter pane (right side) supports text search, course and cultural-influence tag filters, status, a **Recipe type** toggle, and a **Min rating** selector (★☆☆☆☆+ through ★★★★★) — so you can narrow to e.g. "Italian recipes rated 4 or above" in one step. Bread recipes are marked with a 🍞 prefix; rated recipes show their star glyphs inline.
 
 When the database is empty a centered prompt appears with instructions for adding a first recipe.
 
@@ -107,7 +108,8 @@ Falls back to a plain table when stdout is not a TTY or `--query` is set.
 | `a` | Add a new recipe |
 | `d` | Delete (with confirmation) |
 | `m` | Open manage |
-| `r` | Retry AI extraction (only shown when status is `processing_failed`) |
+| `r` | Rate this recipe (1–5 stars) — or retry AI extraction when status is `processing_failed` |
+| `N` | Open / edit personal notes |
 | `h` | Go back to the list |
 | `q` / `esc` | Quit |
 
@@ -288,7 +290,7 @@ The SQLite schema mirrors the [milk_steak](https://github.com/djcp/milk_steak) R
 
 | Table | Purpose |
 |---|---|
-| `recipes` | Core recipe data: name, description, directions, timing, servings, status, source URL/text |
+| `recipes` | Core recipe data: name, description, directions, timing, servings, status, source URL/text; also `rating` (nullable 1–5) and `notes` (freeform text) — user annotations never overwritten by AI extraction |
 | `ingredients` | Canonical ingredient dictionary (lowercase, deduplicated) |
 | `recipe_ingredients` | Join table with quantity, unit, descriptor, section, and position |
 | `tags` | Tag values scoped by context |
@@ -333,7 +335,7 @@ Elm-architecture TUI framework. Used for the interactive recipe browser, add-com
 Reusable Bubbletea components. `textinput` and `textarea` drive the edit form fields, including inline autocomplete suggestions for ingredients, units, and tags.
 
 ### [Charmbracelet / Huh](https://github.com/charmbracelet/huh)
-Form and prompt library built on Bubbletea. Used for API key onboarding and config selection menus.
+Form and prompt library built on Bubbletea. Used for API key onboarding, config selection menus, and the inline star-rating selector in the recipe detail view (embedded directly in the running TUI rather than launched as a separate program).
 
 ### [Charmbracelet / Lipgloss](https://github.com/charmbracelet/lipgloss)
 Declarative terminal styling — colors, borders, padding, width constraints. Drives the recipe detail view, edit form, status badges, tag pills, and the shared style palette in `internal/ui/styles.go`.

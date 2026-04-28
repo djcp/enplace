@@ -16,6 +16,7 @@ type FilterState struct {
 	Influences []string
 	Status     string // "" = all; else "draft", "review", "published"
 	IsBread    bool   // false = all recipes; true = bread/dough only
+	MinRating  int    // 0 = any; 1–5 = minimum rating
 }
 
 // SearchData holds autocomplete suggestions for the filter panel.
@@ -32,6 +33,7 @@ const (
 	ffInfluences
 	ffStatus
 	ffIsBread
+	ffMinRating
 	ffSearch
 	ffCount // total number of filter fields
 )
@@ -52,6 +54,7 @@ type ListModel struct {
 	filterInfluences []string
 	filterStatus     string // "" = all
 	filterIsBread    bool   // false = all; true = bread/dough only
+	filterMinRating  int    // 0 = any; 1–5 = minimum
 	courseBuffer     string // currently-being-typed for courses row
 	influenceBuffer  string // currently-being-typed for influences row
 
@@ -65,6 +68,7 @@ type ListModel struct {
 	savedInfluences []string
 	savedStatus     string
 	savedIsBread    bool
+	savedMinRating  int
 
 	// Set to > 0 when the user pressed Enter to view a recipe.
 	selectedID      int64
@@ -92,6 +96,7 @@ func NewListModel(recipes []models.Recipe, initial FilterState, sd SearchData) L
 		filterInfluences: initial.Influences,
 		filterStatus:     initial.Status,
 		filterIsBread:    initial.IsBread,
+		filterMinRating:  initial.MinRating,
 		allCourses:       sd.Courses,
 		allInfluences:    sd.Influences,
 	}
@@ -130,12 +135,14 @@ func (m ListModel) Filter() FilterState {
 		Influences: m.filterInfluences,
 		Status:     m.filterStatus,
 		IsBread:    m.filterIsBread,
+		MinRating:  m.filterMinRating,
 	}
 }
 
 func (m ListModel) hasActiveFilters() bool {
 	return m.query != "" || len(m.filterCourses) > 0 ||
-		len(m.filterInfluences) > 0 || m.filterStatus != "" || m.filterIsBread
+		len(m.filterInfluences) > 0 || m.filterStatus != "" || m.filterIsBread ||
+		m.filterMinRating > 0
 }
 
 func (m ListModel) Init() tea.Cmd { return nil }
@@ -167,6 +174,7 @@ func (m ListModel) toFilterState() filterState {
 		influences:      m.filterInfluences,
 		status:          m.filterStatus,
 		isBread:         m.filterIsBread,
+		minRating:       m.filterMinRating,
 		courseBuffer:    m.courseBuffer,
 		influenceBuffer: m.influenceBuffer,
 		allCourses:      m.allCourses,
@@ -176,6 +184,7 @@ func (m ListModel) toFilterState() filterState {
 		savedInfluences: m.savedInfluences,
 		savedStatus:     m.savedStatus,
 		savedIsBread:    m.savedIsBread,
+		savedMinRating:  m.savedMinRating,
 		active:          m.typing,
 	}
 }
@@ -188,6 +197,7 @@ func (m ListModel) applyFilterState(fs filterState) ListModel {
 	m.filterInfluences = fs.influences
 	m.filterStatus = fs.status
 	m.filterIsBread = fs.isBread
+	m.filterMinRating = fs.minRating
 	m.courseBuffer = fs.courseBuffer
 	m.influenceBuffer = fs.influenceBuffer
 	m.savedQuery = fs.savedQuery
@@ -195,6 +205,7 @@ func (m ListModel) applyFilterState(fs filterState) ListModel {
 	m.savedInfluences = fs.savedInfluences
 	m.savedStatus = fs.savedStatus
 	m.savedIsBread = fs.savedIsBread
+	m.savedMinRating = fs.savedMinRating
 	m.typing = fs.active
 	return m
 }
@@ -504,7 +515,22 @@ func renderRecipeRow(r models.Recipe, selected bool, width int) string {
 	if r.IsBread {
 		nameStr = "🍞 " + r.Name
 	}
-	name := truncate(nameStr, nw)
+
+	// Build annotation suffix: rating glyphs and/or notes indicator.
+	suffix := ""
+	if g := r.RatingGlyphs(); g != "" {
+		suffix = " " + g
+	}
+	if r.Notes != "" {
+		suffix += " 📝"
+	}
+	// Reserve space for the suffix within the name column.
+	nameAvail := nw - len([]rune(suffix))
+	if nameAvail < 1 {
+		nameAvail = 1
+	}
+	name := truncate(nameStr, nameAvail) + suffix
+
 	courses := truncate(strings.Join(r.TagsByContext(models.TagContextCourses), ", "), 14)
 	timeStr := totalTimeStr(r.PreparationTime, r.CookingTime)
 	status := StatusBadge(r.Status)

@@ -407,3 +407,22 @@ remaining vertical space is computed by counting `\n` in `sb` and subtracting fr
 contributes the same number of lines. If the banner height changes (e.g. wrapping on
 very narrow terminals), the fill calculation will be off. A more robust approach
 would be to track consumed lines explicitly rather than counting newlines post-hoc.
+
+## Ratings and notes
+
+`recipes.rating` (nullable INTEGER 1–5) and `recipes.notes` (TEXT NOT NULL DEFAULT '')
+are user annotations. Never write them through `UpdateRecipeFields` or `SaveRecipe`
+(both handle AI-extracted data only). Use `UpdateRecipeRating` and `UpdateRecipeNotes`.
+
+### huh form value-binding pattern
+
+The rating selector uses `huh.NewSelect[int]().Value(m.ratingPending)`.
+Bubbletea copies the model on every `Update`, so the binding pointer must be
+heap-allocated (`m.ratingPending = &v`) and outlive model copies — never bind to a
+plain struct field. `handleRatingMsg` handles all `tea.Msg` types (not just `KeyMsg`)
+so the huh form receives cursor-blink and other internal events it needs.
+
+### PDF export
+
+PDF uses `"Rating: 4/5"` (plain text) rather than ★/☆ glyphs —
+those code points are outside cp1252, same as the existing `•`/`°` constraints.

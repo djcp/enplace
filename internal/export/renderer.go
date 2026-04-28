@@ -50,6 +50,10 @@ type Renderer interface {
 	// SourceURL is called when the recipe has a source URL.
 	SourceURL(url string)
 
+	// Rating is called when the recipe has a non-nil rating value (1–5).
+	// Called after Meta/Hydration and before Description.
+	Rating(rating int)
+
 	// BreadMetricsTable is called for bread/dough recipes just before the
 	// footer, with the full baker's-percentage breakdown. starterAssumed is
 	// true when at least one starter ingredient was present and counted as
@@ -63,6 +67,9 @@ type Renderer interface {
 	// Result returns the final rendered output.
 	Result() ([]byte, error)
 }
+
+// ratingGlyphStr returns "★★★★☆" for values 1–5.
+func ratingGlyphStr(v int) string { return models.RatingGlyphsFor(v) }
 
 // RenderRecipe traverses r in document order, dispatching to ren at each
 // section, then returns ren.Result().
@@ -82,6 +89,10 @@ func RenderRecipe(r *models.Recipe, opts Options, ren Renderer) ([]byte, error) 
 			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
 			ren.Hydration(bm.HydrationPct, totalG, bm.StarterCount > 0)
 		}
+	}
+
+	if r.Rating != nil {
+		ren.Rating(*r.Rating)
 	}
 
 	if r.Description != "" {

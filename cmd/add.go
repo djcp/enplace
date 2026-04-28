@@ -173,7 +173,7 @@ func runAddQuiet(sourceURL string) error {
 func runDetailLoop(recipe *models.Recipe) error {
 	sd, _ := loadSearchData()
 	for {
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
 		if err != nil {
 			return err
 		}
@@ -182,6 +182,26 @@ func runDetailLoop(recipe *models.Recipe) error {
 				return fmt.Errorf("deleting recipe: %w", err)
 			}
 			return runList(nil, nil)
+		}
+		if updateRating {
+			if err := db.UpdateRecipeRating(sqlDB, recipe.ID, newRating); err != nil {
+				return fmt.Errorf("saving rating: %w", err)
+			}
+			recipe, err = db.GetRecipe(sqlDB, recipe.ID)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if updateNotes {
+			if err := db.UpdateRecipeNotes(sqlDB, recipe.ID, newNotes); err != nil {
+				return fmt.Errorf("saving notes: %w", err)
+			}
+			recipe, err = db.GetRecipe(sqlDB, recipe.ID)
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		if goRetry {
 			_ = runRetryPipeline(recipe.ID)
