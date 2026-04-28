@@ -46,9 +46,30 @@ type Recipe struct {
 
 	IsBread bool `db:"is_bread"`
 
+	Rating *int   `db:"rating"` // 1–5, nullable
+	Notes  string `db:"notes"`
+
 	// Populated on load when needed.
 	Ingredients []RecipeIngredient `db:"-"`
 	Tags        []Tag              `db:"-"`
+}
+
+var ratingGlyphs = [6]string{"", "★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★"}
+
+// RatingGlyphs returns a "★★★★☆" string for the rating, or "" if unrated.
+func (r *Recipe) RatingGlyphs() string {
+	if r.Rating == nil || *r.Rating < 1 || *r.Rating > 5 {
+		return ""
+	}
+	return ratingGlyphs[*r.Rating]
+}
+
+// RatingGlyphsFor returns a "★★★★☆" string for a 1–5 value.
+func RatingGlyphsFor(v int) string {
+	if v < 1 || v > 5 {
+		return ""
+	}
+	return ratingGlyphs[v]
 }
 
 // IsPublished returns true when the recipe is public.
