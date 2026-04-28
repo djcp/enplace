@@ -94,6 +94,11 @@ func (r *rtfRenderer) SourceURL(url string) {
 	r.sb.WriteString(fmt.Sprintf("{\\fs18\\cf3 Source: %s\\cf0\\par}\n", rtfEnc(url)))
 }
 
+func (r *rtfRenderer) Rating(rating int) {
+	line := fmt.Sprintf("Rating: %s  (%d/5)", ratingGlyphStr(rating), rating)
+	r.sb.WriteString(fmt.Sprintf("{\\fs20\\b\\cf1 %s\\cf0\\b0\\par}\n", rtfEnc(line)))
+}
+
 func (r *rtfRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
 	if len(perIngredient) == 0 {
 		return

@@ -83,6 +83,10 @@ func (r *markdownRenderer) SourceURL(url string) {
 	r.sb.WriteString("\n---\n\nSource: " + url + "\n")
 }
 
+func (r *markdownRenderer) Rating(rating int) {
+	r.sb.WriteString(fmt.Sprintf("\n**Rating:** %s (%d/5)\n", ratingGlyphStr(rating), rating))
+}
+
 func (r *markdownRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
 	if len(perIngredient) == 0 {
 		return

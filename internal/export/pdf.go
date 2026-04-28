@@ -128,6 +128,15 @@ func (r *pdfRenderer) SourceURL(url string) {
 	r.f.MultiCell(r.pw, 5, r.tr("Source: "+url), "", "L", false)
 }
 
+func (r *pdfRenderer) Rating(rating int) {
+	// Core PDF fonts (Helvetica) use cp1252 which lacks ★/☆; use numeric form.
+	r.f.Ln(4)
+	r.f.SetFont("Helvetica", "B", 11)
+	r.f.SetTextColor(201, 100, 66) // terracotta
+	r.f.MultiCell(r.pw, 6, r.tr(fmt.Sprintf("Rating: %d/5", rating)), "", "L", false)
+	r.f.SetTextColor(50, 50, 50)
+}
+
 func (r *pdfRenderer) BreadMetricsTable(perIngredient []scaling.IngredientBakerPct, hydrationPct float64, starterAssumed bool) {
 	if len(perIngredient) == 0 {
 		return
