@@ -17,6 +17,7 @@ type filterState struct {
 	influences      []string
 	status          string
 	isBread         bool
+	minRating       int // 0 = any; 1–5 = minimum rating
 	courseBuffer    string
 	influenceBuffer string
 	allCourses      []string
@@ -28,6 +29,7 @@ type filterState struct {
 	savedInfluences []string
 	savedStatus     string
 	savedIsBread    bool
+	savedMinRating  int
 
 	// active = the pane is currently open / the user is typing in it.
 	active bool
@@ -41,6 +43,7 @@ func newFilterState(initial FilterState, sd SearchData) filterState {
 		influences:    initial.Influences,
 		status:        initial.Status,
 		isBread:       initial.IsBread,
+		minRating:     initial.MinRating,
 		allCourses:    sd.Courses,
 		allInfluences: sd.Influences,
 	}
@@ -54,6 +57,7 @@ func (fs filterState) toPublicFilter() FilterState {
 		Influences: fs.influences,
 		Status:     fs.status,
 		IsBread:    fs.isBread,
+		MinRating:  fs.minRating,
 	}
 }
 
@@ -64,6 +68,7 @@ func (fs filterState) enter() filterState {
 	fs.savedInfluences = append([]string(nil), fs.influences...)
 	fs.savedStatus = fs.status
 	fs.savedIsBread = fs.isBread
+	fs.savedMinRating = fs.minRating
 	fs.active = true
 	return fs
 }
@@ -75,8 +80,10 @@ func (fs filterState) cancel() filterState {
 	fs.influences = fs.savedInfluences
 	fs.status = fs.savedStatus
 	fs.isBread = fs.savedIsBread
+	fs.minRating = fs.savedMinRating
 	fs.savedQuery, fs.savedCourses, fs.savedInfluences, fs.savedStatus = "", nil, nil, ""
 	fs.savedIsBread = false
+	fs.savedMinRating = 0
 	fs.courseBuffer, fs.influenceBuffer = "", ""
 	fs.active = false
 	return fs
@@ -84,7 +91,8 @@ func (fs filterState) cancel() filterState {
 
 // hasActiveFilters returns true when any filter field is non-empty.
 func (fs filterState) hasActiveFilters() bool {
-	return fs.query != "" || len(fs.courses) > 0 || len(fs.influences) > 0 || fs.status != "" || fs.isBread
+	return fs.query != "" || len(fs.courses) > 0 || len(fs.influences) > 0 ||
+		fs.status != "" || fs.isBread || fs.minRating > 0
 }
 
 // handleFilterKey processes a keypress in the filter pane.
@@ -123,6 +131,8 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 			fs.status = prevStatus(fs.status)
 		case ffIsBread:
 			fs.isBread = !fs.isBread
+		case ffMinRating:
+			fs.minRating = (fs.minRating - 1 + 6) % 6
 		}
 
 	case tea.KeyRight:
@@ -131,6 +141,8 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 			fs.status = nextStatus(fs.status)
 		case ffIsBread:
 			fs.isBread = !fs.isBread
+		case ffMinRating:
+			fs.minRating = (fs.minRating + 1) % 6
 		}
 
 	case tea.KeyBackspace, tea.KeyDelete:
@@ -159,6 +171,10 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 	default:
 		if msg.Type == tea.KeySpace && fs.focus == ffIsBread {
 			fs.isBread = !fs.isBread
+			break
+		}
+		if msg.Type == tea.KeySpace && fs.focus == ffMinRating {
+			fs.minRating = (fs.minRating + 1) % 6
 			break
 		}
 		var ch string
@@ -224,6 +240,9 @@ func renderFilterPane(fs filterState, width, height int, scrollHint string) stri
 	sb.WriteString("\n\n")
 
 	sb.WriteString(renderFilterPaneIsBread(fs.isBread, fs.active && fs.focus == ffIsBread))
+	sb.WriteString("\n\n")
+
+	sb.WriteString(renderFilterPaneMinRating(fs.minRating, fs.active && fs.focus == ffMinRating))
 	sb.WriteString("\n\n")
 
 	sb.WriteString(renderFilterPaneSearchButton(fs.active && fs.focus == ffSearch))
@@ -367,6 +386,32 @@ func renderFilterPaneIsBread(isBread bool, focused bool) string {
 		}
 	}
 	return sb.String()
+}
+
+// renderFilterPaneMinRating renders the minimum-rating selector row.
+func renderFilterPaneMinRating(minRating int, focused bool) string {
+	var sb strings.Builder
+	sb.WriteString(MutedStyle.Render(" min rating: "))
+	label := minRatingLabel(minRating)
+	if focused {
+		sb.WriteString(MutedStyle.Render("◀ "))
+		sb.WriteString(label)
+		sb.WriteString(MutedStyle.Render(" ▶"))
+	} else {
+		sb.WriteString(label)
+	}
+	return sb.String()
+}
+
+func minRatingLabel(v int) string {
+	if v == 0 {
+		return MutedStyle.Render("any")
+	}
+	g := models.RatingGlyphsFor(v)
+	if v == 5 {
+		return lipgloss.NewStyle().Foreground(ColorPrimary).Render(g)
+	}
+	return lipgloss.NewStyle().Foreground(ColorPrimary).Render(g + "+")
 }
 
 // renderFilterPaneSearchButton renders the "search" action button at the bottom of the filter pane.

@@ -5,8 +5,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/models"
 	"github.com/djcp/enplace/internal/scaling"
@@ -52,6 +54,21 @@ type DetailModel struct {
 	focus  detailFocus
 	filter filterState // search/filter pane state (shared with list view)
 
+	// Rating overlay — huh.Select form launched on r.
+	ratingMode    bool
+	ratingPending *int // heap-allocated int shared with the form binding
+	ratingForm    *huh.Form
+
+	// Notes overlay — press N to open a full textarea editor.
+	notesMode  bool
+	notesInput textarea.Model
+
+	// Return signals for the caller to persist.
+	updateRating bool
+	newRating    *int
+	updateNotes  bool
+	newNotes     string
+
 	goHome           bool
 	goAdd            bool
 	goEdit           bool
@@ -70,11 +87,16 @@ type DetailModel struct {
 // the TUI starts so the first frame and any resize redraws are instant.
 func NewDetailModel(recipe *models.Recipe, initial FilterState, sd SearchData) DetailModel {
 	detectedGlamourStyle() // warm up the cache before entering the event loop
+	ni := textarea.New()
+	ni.ShowLineNumbers = false
+	ni.SetHeight(8)
+	ni.Placeholder = "Personal notes..."
 	m := DetailModel{
-		recipe: recipe,
-		width:  80,
-		height: 24,
-		filter: newFilterState(initial, sd),
+		recipe:     recipe,
+		width:      80,
+		height:     24,
+		filter:     newFilterState(initial, sd),
+		notesInput: ni,
 	}
 	m.lines = m.buildLines()
 	return m
@@ -104,6 +126,18 @@ func (m DetailModel) GoRetry() bool { return m.goRetry }
 // DeleteConfirmed returns true when the user confirmed deletion of the recipe.
 func (m DetailModel) DeleteConfirmed() bool { return m.deleteConfirmed }
 
+// UpdateRating returns true when the user set or cleared a rating.
+func (m DetailModel) UpdateRating() bool { return m.updateRating }
+
+// NewRating returns the pending rating value (nil = clear).
+func (m DetailModel) NewRating() *int { return m.newRating }
+
+// UpdateNotes returns true when the user saved new notes text.
+func (m DetailModel) UpdateNotes() bool { return m.updateNotes }
+
+// NewNotes returns the saved notes text.
+func (m DetailModel) NewNotes() string { return m.newNotes }
+
 // ReturnFilter returns the filter state the user had when leaving (for passing back to the list).
 func (m DetailModel) ReturnFilter() FilterState { return m.filter.toPublicFilter() }
 
@@ -127,24 +161,47 @@ func (m DetailModel) maxScroll() int {
 }
 
 func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+	// Always track terminal size.
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = ws.Width
+		m.height = ws.Height
 		m.lines = m.buildLines()
 		if m.scroll > m.maxScroll() {
 			m.scroll = m.maxScroll()
 		}
+		if m.notesMode {
+			m.notesInput.SetWidth(m.width - 12)
+		}
+	}
+
+	// Rating overlay: all messages are delegated to the huh form.
+	if m.ratingMode {
+		return m.handleRatingMsg(msg)
+	}
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		return m, nil // already handled above
 
 	case tea.KeyMsg:
 		if m.confirmingDelete {
 			return m.handleConfirmKey(msg)
+		}
+		if m.notesMode {
+			return m.handleNotesKey(msg)
 		}
 		// All keypresses when header has focus are routed to the search handler.
 		if m.focus == detailFocusHeader {
 			return m.handleHeaderKey(msg)
 		}
 		return m.handleNavKey(msg)
+	}
+
+	// Forward non-key messages to the textarea when in notes mode (e.g. blink).
+	if m.notesMode {
+		var cmd tea.Cmd
+		m.notesInput, cmd = m.notesInput.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -186,6 +243,80 @@ func (m DetailModel) handleHeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleRatingMsg delegates all messages to the embedded huh.Select form.
+// On completion the chosen value is committed; on abort the overlay closes.
+func (m DetailModel) handleRatingMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.ratingForm.Update(msg)
+	if f, ok := updated.(*huh.Form); ok {
+		m.ratingForm = f
+	}
+	switch m.ratingForm.State {
+	case huh.StateCompleted:
+		if m.ratingPending != nil {
+			if *m.ratingPending == 0 {
+				m.updateRating = true
+				m.newRating = nil
+			} else {
+				m.updateRating = true
+				v := *m.ratingPending
+				m.newRating = &v
+			}
+		}
+		m.ratingMode = false
+		return m, tea.Quit
+	case huh.StateAborted:
+		m.ratingMode = false
+		return m, nil
+	}
+	return m, cmd
+}
+
+func buildRatingForm(value *int, termWidth int) *huh.Form {
+	formWidth := termWidth - 4
+	if formWidth > 52 {
+		formWidth = 52
+	}
+	if formWidth < 24 {
+		formWidth = 24
+	}
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[int]().
+				Title("Rate this recipe").
+				Options(
+					huh.NewOption("★★★★★  5 stars", 5),
+					huh.NewOption("★★★★☆  4 stars", 4),
+					huh.NewOption("★★★☆☆  3 stars", 3),
+					huh.NewOption("★★☆☆☆  2 stars", 2),
+					huh.NewOption("★☆☆☆☆  1 star", 1),
+					huh.NewOption("(no rating)", 0),
+				).
+				Value(value),
+		),
+	).WithWidth(formWidth)
+}
+
+// handleNotesKey processes keys while the notes overlay is open.
+// ctrl+s saves and quits; Esc discards and closes the overlay.
+func (m DetailModel) handleNotesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+s":
+		m.updateNotes = true
+		m.newNotes = m.notesInput.Value()
+		m.notesMode = false
+		return m, tea.Quit
+	case "esc":
+		m.notesMode = false
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	default:
+		var cmd tea.Cmd
+		m.notesInput, cmd = m.notesInput.Update(msg)
+		return m, cmd
+	}
 }
 
 // handleNavKey processes keys while content or footer has focus.
@@ -231,6 +362,20 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.goRetry = true
 			return m, tea.Quit
 		}
+		v := 0
+		if m.recipe.Rating != nil {
+			v = *m.recipe.Rating
+		}
+		m.ratingPending = &v
+		m.ratingForm = buildRatingForm(m.ratingPending, m.width)
+		m.ratingMode = true
+		return m, m.ratingForm.Init()
+
+	case "N":
+		m.notesMode = true
+		m.notesInput.SetValue(m.recipe.Notes)
+		m.notesInput.SetWidth(m.width - 12)
+		return m, m.notesInput.Focus()
 
 	case "d":
 		m.confirmingDelete = true
@@ -295,6 +440,24 @@ func (m DetailModel) View() string {
 		}
 		sb.WriteString("\n")
 		sb.WriteString(renderConfirmFooter(m.width))
+		return sb.String()
+	}
+
+	// Rating overlay — huh form takes over the content area.
+	if m.ratingMode && m.ratingForm != nil {
+		sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, m.ratingForm.View()))
+		return sb.String()
+	}
+
+	// Notes overlay — replaces content and footer.
+	if m.notesMode {
+		sb.WriteString(m.viewNotesOverlay())
+		used := strings.Count(sb.String(), "\n")
+		if fill := m.height - used - 3; fill > 0 {
+			sb.WriteString(strings.Repeat("\n", fill))
+		}
+		sb.WriteString("\n")
+		sb.WriteString(renderNotesFooter(m.width))
 		return sb.String()
 	}
 
@@ -366,6 +529,39 @@ func (m DetailModel) viewConfirm() string {
 	return sb.String()
 }
 
+func (m DetailModel) viewNotesOverlay() string {
+	var sb strings.Builder
+	sb.WriteString("\n\n")
+
+	inner := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("Notes"),
+		"",
+		m.notesInput.View(),
+	)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Padding(1, 2).
+		Render(inner)
+
+	sb.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, box))
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+func renderNotesFooter(width int) string {
+	keys := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("ctrl+s save"),
+		MutedStyle.Render("Esc cancel"),
+	}
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(ColorBorder).
+		Width(width - 2).
+		Render(footerLine(keys, width-2))
+}
+
 // buildLines renders the recipe body at the current terminal width and splits
 // the result into individual terminal lines for viewport scrolling.
 // When the filter pane is open the content is constrained to the left 66% of the terminal.
@@ -410,6 +606,11 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	}
 	if len(meta) > 0 {
 		sb.WriteString(strings.Join(meta, MutedStyle.Render("  ·  ")))
+		sb.WriteString("\n")
+	}
+	if r.Rating != nil {
+		sb.WriteString(MutedStyle.Render("Rating: "))
+		sb.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render(r.RatingGlyphs()))
 		sb.WriteString("\n")
 	}
 	if r.IsBread {
@@ -461,6 +662,17 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	if r.SourceURL != "" {
 		sb.WriteString("\n")
 		sb.WriteString(MutedStyle.Render("Source: " + r.SourceURL))
+		sb.WriteString("\n")
+	}
+
+	// Notes.
+	if r.Notes != "" {
+		sb.WriteString(SectionLabelStyle.Render("Notes"))
+		sb.WriteString("\n")
+		sb.WriteString(lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Width(width).
+			Render(r.Notes))
 		sb.WriteString("\n")
 	}
 
@@ -604,7 +816,7 @@ func renderDetailBanner(name string, isBread bool, width int) string {
 }
 
 // renderDetailFooter renders the key-hint footer for the recipe detail view.
-func renderDetailFooter(showRetry bool, width int) string {
+func renderDetailFooter(isFailed bool, width int) string {
 	keys := []string{
 		"📜 ↑/↓ scroll",
 		MutedStyle.Render("🏠 h home"),
@@ -614,8 +826,11 @@ func renderDetailFooter(showRetry bool, width int) string {
 		MutedStyle.Render("➕ a add"),
 		MutedStyle.Render("🗑 d delete"),
 	}
-	if showRetry {
+	if isFailed {
 		keys = append(keys, MutedStyle.Render("🔄 r retry"))
+	} else {
+		keys = append(keys, MutedStyle.Render("★ r rate"))
+		keys = append(keys, MutedStyle.Render("📝 N notes"))
 	}
 
 	return lipgloss.NewStyle().
@@ -635,14 +850,14 @@ func min(a, b int) int {
 
 // RunDetailUI runs the interactive recipe detail TUI.
 // initial carries the active filter from the calling context; sd provides autocomplete suggestions.
-// Returns navigation signals, whether the user confirmed deletion, the return filter state, and any error.
-func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goScale bool, goManage bool, goRetry bool, deleteConfirmed bool, returnFilter FilterState, err error) {
+// Returns navigation signals, rating/notes updates, the return filter state, and any error.
+func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goScale bool, goManage bool, goRetry bool, deleteConfirmed bool, updateRating bool, newRating *int, updateNotes bool, newNotes string, returnFilter FilterState, err error) {
 	m := NewDetailModel(recipe, initial, sd)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return false, false, false, false, false, false, false, false, FilterState{}, runErr
+		return false, false, false, false, false, false, false, false, false, nil, false, "", FilterState{}, runErr
 	}
 	fm := final.(DetailModel)
-	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoScale(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.ReturnFilter(), nil
+	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoScale(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.UpdateRating(), fm.NewRating(), fm.UpdateNotes(), fm.NewNotes(), fm.ReturnFilter(), nil
 }

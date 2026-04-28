@@ -98,6 +98,7 @@ func runList(_ *cobra.Command, _ []string) error {
 					Influences: filter.CulturalInfluences,
 					Status:     filter.StatusFilter,
 					IsBread:    filter.IsBread,
+					MinRating:  filter.MinRating,
 				},
 				searchData,
 			)
@@ -115,6 +116,7 @@ func runList(_ *cobra.Command, _ []string) error {
 					CulturalInfluences: filterState.Influences,
 					StatusFilter:       filterState.Status,
 					IsBread:            filterState.IsBread,
+					MinRating:          filterState.MinRating,
 				}
 				continue
 			}
@@ -162,7 +164,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, returnFilter, err := ui.RunDetailUI(
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(
 			recipe,
 			ui.FilterState{
 				Query:      filter.Query,
@@ -170,6 +172,7 @@ func runList(_ *cobra.Command, _ []string) error {
 				Influences: filter.CulturalInfluences,
 				Status:     filter.StatusFilter,
 				IsBread:    filter.IsBread,
+				MinRating:  filter.MinRating,
 			},
 			searchData,
 		)
@@ -181,6 +184,20 @@ func runList(_ *cobra.Command, _ []string) error {
 				return fmt.Errorf("deleting recipe: %w", err)
 			}
 			filter = db.RecipeFilter{}
+			continue
+		}
+		if updateRating {
+			if err := db.UpdateRecipeRating(sqlDB, recipe.ID, newRating); err != nil {
+				return fmt.Errorf("saving rating: %w", err)
+			}
+			pendingDetailID = recipe.ID
+			continue
+		}
+		if updateNotes {
+			if err := db.UpdateRecipeNotes(sqlDB, recipe.ID, newNotes); err != nil {
+				return fmt.Errorf("saving notes: %w", err)
+			}
+			pendingDetailID = recipe.ID
 			continue
 		}
 		if goRetry {
@@ -255,6 +272,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			CulturalInfluences: returnFilter.Influences,
 			StatusFilter:       returnFilter.Status,
 			IsBread:            returnFilter.IsBread,
+			MinRating:          returnFilter.MinRating,
 		}
 	}
 

@@ -20,6 +20,7 @@ type RecipeFilter struct {
 	DietaryRestrictions []string
 	StatusFilter        string // empty = all statuses
 	IsBread             bool   // false = all recipes; true = bread/dough only
+	MinRating           int    // 0 = any; 1–5 = minimum rating (NULL ratings excluded)
 }
 
 // --- Recipes ---
@@ -127,6 +128,11 @@ func ListRecipes(db *DB, f RecipeFilter) ([]models.Recipe, error) {
 
 	if f.IsBread {
 		conditions = append(conditions, "r.is_bread = 1")
+	}
+
+	if f.MinRating > 0 {
+		conditions = append(conditions, "r.rating >= ?")
+		args = append(args, f.MinRating)
 	}
 
 	if f.Query != "" {
