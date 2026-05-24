@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/models"
 )
@@ -126,6 +127,23 @@ func (m manageAIRunsModel) listVisibleRows() int {
 	return v
 }
 
+// listDataRows returns the number of AI run data rows the list view can display.
+// It accounts for the leading blank line and the lipgloss table header row
+// within the content area returned by listVisibleRows.
+//
+// Use this value — not listVisibleRows — wherever the rendered window size matters:
+// both in viewList (to slice m.runs) and in handleListKey (scroll threshold).
+// Using the same value in both places guarantees the selected row is always visible.
+func (m manageAIRunsModel) listDataRows() int {
+	// Subtract 1 for the leading blank line at the top of viewList,
+	// and 1 for the lipgloss table header row.
+	v := m.listVisibleRows() - 2
+	if v < 1 {
+		v = 1
+	}
+	return v
+}
+
 func (m manageAIRunsModel) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
@@ -142,9 +160,9 @@ func (m manageAIRunsModel) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.cursor < len(m.runs)-1 {
 			m.cursor++
-			visible := m.listVisibleRows()
-			if m.cursor >= m.offset+visible {
-				m.offset = m.cursor - visible + 1
+			dataRows := m.listDataRows()
+			if m.cursor >= m.offset+dataRows {
+				m.offset = m.cursor - dataRows + 1
 			}
 		}
 	case "enter", " ":
@@ -329,57 +347,26 @@ func (m manageAIRunsModel) viewList() string {
 	var sb strings.Builder
 	sb.WriteString("\n")
 
-	visible := m.listVisibleRows() - 1
-	if visible < 1 {
-		visible = 1
-	}
-	end := m.offset + visible
+	dataRows := m.listDataRows()
+	end := m.offset + dataRows
 	if end > len(m.runs) {
 		end = len(m.runs)
 	}
 
+	tableWidth := m.width - 2
 	if len(m.runs) == 0 {
+		sb.WriteString(buildAIRunsTable(nil, -1, tableWidth))
+		sb.WriteString("\n")
 		sb.WriteString(MutedStyle.Render("  No AI runs recorded."))
 		sb.WriteString("\n")
 	} else {
-		for i := m.offset; i < end; i++ {
-			r := m.runs[i]
-			selected := i == m.cursor
-
-			dateStr := r.CreatedAt.Format("2006-01-02")
-			successMark := lipgloss.NewStyle().Foreground(ColorSuccess).Render("✓")
-			if !r.Success {
-				successMark = lipgloss.NewStyle().Foreground(ColorError).Render("✗")
-			}
-			durStr := ""
-			if r.DurationMS >= 0 {
-				durStr = fmt.Sprintf("%dms", r.DurationMS)
-			}
-			recipeName := r.RecipeName
-			if recipeName == "" {
-				recipeName = MutedStyle.Render("(deleted)")
-			}
-
-			nameWidth := m.width - 90
-			if nameWidth < 1 {
-				nameWidth = 1
-			}
-			row := fmt.Sprintf("  %s  %-18s  %-26s  %s  %-8s  %s",
-				dateStr,
-				truncate(r.ServiceClass, 18),
-				truncate(r.AIModel, 26),
-				successMark,
-				durStr,
-				truncate(recipeName, nameWidth),
-			)
-
-			if selected {
-				sb.WriteString(HighlightStyle.Width(m.width - 2).Render(row))
-			} else {
-				sb.WriteString(row)
-			}
-			sb.WriteString("\n")
+		selectedIdx := m.cursor - m.offset
+		rendered := end - m.offset
+		if selectedIdx < 0 || selectedIdx >= rendered {
+			selectedIdx = -1
 		}
+		sb.WriteString(buildAIRunsTable(m.runs[m.offset:end], selectedIdx, tableWidth))
+		sb.WriteString("\n")
 	}
 
 	if m.listNotice != "" {
@@ -403,6 +390,87 @@ func (m manageAIRunsModel) viewList() string {
 	sb.WriteString("\n")
 	sb.WriteString(renderManageFooter([]string{"↑/↓ navigate", "enter view", "d delete", "p prune (30d)", "esc back"}, m.width))
 	return sb.String()
+}
+
+// buildAIRunsTable renders a header row and the given AI run rows as a
+// borderless lipgloss table. runs is the visible window; selectedIdx is the
+// 0-based index within that window of the selected row (-1 if none).
+// width is the available content width (typically m.width - 2).
+//
+// Rows are single-line (Wrap false) so the date, service, model, success,
+// duration, and recipe columns are each truncated to their allocated width.
+func buildAIRunsTable(runs []db.AIRunSummary, selectedIdx, width int) string {
+	const (
+		dateColWidth    = 10 + listColPad // 12
+		serviceColWidth = 18 + listColPad // 20
+		modelColWidth   = 26 + listColPad // 28
+		successColWidth = 1 + listColPad  // 3
+		durColWidth     = 8 + listColPad  // 10
+	)
+	const fixedCols = dateColWidth + serviceColWidth + modelColWidth + successColWidth + durColWidth // 73
+
+	recipeColWidth := width - fixedCols
+	if recipeColWidth < 8 {
+		recipeColWidth = 8
+	}
+
+	styleFunc := func(row, col int) lipgloss.Style {
+		var base lipgloss.Style
+		switch {
+		case row == table.HeaderRow:
+			base = MutedStyle
+		case row == selectedIdx:
+			base = HighlightStyle
+		default:
+			base = lipgloss.NewStyle()
+		}
+		switch col {
+		case 0:
+			return base.PaddingLeft(listColPad).Width(dateColWidth)
+		case 1:
+			return base.PaddingLeft(listColPad).Width(serviceColWidth)
+		case 2:
+			return base.PaddingLeft(listColPad).Width(modelColWidth)
+		case 3:
+			return base.PaddingLeft(listColPad).Width(successColWidth)
+		case 4:
+			return base.PaddingLeft(listColPad).Width(durColWidth)
+		default: // recipe name
+			return base.PaddingLeft(listColPad).Width(recipeColWidth)
+		}
+	}
+
+	t := table.New().
+		Headers("Date", "Service", "Model", "OK", "Duration", "Recipe").
+		StyleFunc(styleFunc).
+		Width(width).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderHeader(false).
+		BorderColumn(false).
+		BorderRow(false).
+		Wrap(false)
+
+	for _, r := range runs {
+		dateStr := r.CreatedAt.Format("2006-01-02")
+		successMark := lipgloss.NewStyle().Foreground(ColorSuccess).Render("✓")
+		if !r.Success {
+			successMark = lipgloss.NewStyle().Foreground(ColorError).Render("✗")
+		}
+		durStr := ""
+		if r.DurationMS >= 0 {
+			durStr = fmt.Sprintf("%dms", r.DurationMS)
+		}
+		recipeName := r.RecipeName
+		if recipeName == "" {
+			recipeName = MutedStyle.Render("(deleted)")
+		}
+		t.Row(dateStr, r.ServiceClass, r.AIModel, successMark, durStr, recipeName)
+	}
+
+	return t.String()
 }
 
 func (m manageAIRunsModel) buildDetailLines() []string {
