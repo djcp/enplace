@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/djcp/enplace/internal/models"
 )
 
@@ -362,33 +363,37 @@ func (m ListModel) View() string {
 // renderListPane renders the left pane (column headers + recipe rows + fill).
 func (m ListModel) renderListPane(width int) string {
 	var sb strings.Builder
-
-	sb.WriteString(renderColumnHeaders(width))
-	sb.WriteString("\n")
-
 	visible := m.visibleRows()
+
 	if len(m.recipes) == 0 {
+		// Header row only, then no-match message, then fill to full height.
+		// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
+		sb.WriteString(buildRecipeTable(nil, -1, width))
+		sb.WriteString("\n")
 		sb.WriteString(MutedStyle.Render("  No recipes match the current filters."))
 		sb.WriteString("\n")
-		// Fill remaining 2-line slots (minus the 1 line used by the message above).
 		for i := 1; i < 2*visible; i++ {
 			sb.WriteString("\n")
 		}
-	} else {
-		end := m.offset + visible
-		if end > len(m.recipes) {
-			end = len(m.recipes)
-		}
-		for i := m.offset; i < end; i++ {
-			r := m.recipes[i]
-			selected := i == m.cursor
-			sb.WriteString(renderRecipeRow(r, selected, width))
-			sb.WriteString("\n")
-		}
-		// Fill remaining viewport slots — each slot is 2 terminal lines.
-		for i := end - m.offset; i < visible; i++ {
-			sb.WriteString("\n\n")
-		}
+		return sb.String()
+	}
+
+	end := m.offset + visible
+	if end > len(m.recipes) {
+		end = len(m.recipes)
+	}
+	rendered := end - m.offset
+	selectedIdx := m.cursor - m.offset
+	if selectedIdx < 0 || selectedIdx >= rendered {
+		selectedIdx = -1
+	}
+
+	// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
+	sb.WriteString(buildRecipeTable(m.recipes[m.offset:end], selectedIdx, width))
+	sb.WriteString("\n")
+	// Fill remaining viewport slots — each slot is 2 terminal lines.
+	for i := rendered; i < visible; i++ {
+		sb.WriteString("\n\n")
 	}
 
 	return sb.String()
@@ -472,14 +477,6 @@ func renderBanner(width int) string {
 		Render(title)
 }
 
-func listNameWidth(width int) int {
-	nw := width - 40
-	if nw < 20 {
-		nw = 20
-	}
-	return nw
-}
-
 func totalTimeStr(prepMins, cookMins *int) string {
 	total := 0
 	if prepMins != nil {
@@ -502,51 +499,161 @@ func totalTimeStr(prepMins, cookMins *int) string {
 	return fmt.Sprintf("%dh %dm", h, m)
 }
 
-func renderColumnHeaders(width int) string {
-	nw := listNameWidth(width)
-	header := fmt.Sprintf("  %-*s  %-14s  %-8s  %s", nw, "Name", "Courses", "Time", "Status")
-	return MutedStyle.Render(header)
+// listColPad is the left padding applied to every table column.
+const listColPad = 2
+
+// truncateW truncates s to fit within maxCols terminal display columns,
+// using display-width measurement so wide characters (emoji, CJK) are
+// counted correctly. Appends "…" when content is cut, unless maxCols ≤ 2.
+func truncateW(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxCols {
+		return s
+	}
+	if maxCols <= 2 {
+		var out []rune
+		used := 0
+		for _, r := range s {
+			rw := lipgloss.Width(string(r))
+			if used+rw > maxCols {
+				break
+			}
+			out = append(out, r)
+			used += rw
+		}
+		return string(out)
+	}
+	var out []rune
+	used := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if used+rw > maxCols-1 {
+			break
+		}
+		out = append(out, r)
+		used += rw
+	}
+	return string(out) + "…"
 }
 
-func renderRecipeRow(r models.Recipe, selected bool, width int) string {
-	nw := listNameWidth(width)
+// buildRecipeTable renders a header row and the given recipe rows as a
+// borderless lipgloss table. recipes is the visible window; selectedIdx is
+// the 0-based index within that window of the selected row (-1 if none).
+// width is the available pane width.
+//
+// The name column takes 60% of width; courses and time are fixed;
+// status expands to fill the remainder. All rows are exactly 2 terminal
+// lines: the selected row shows the recipe description on line 2, all
+// others keep a blank second line for layout stability.
+func buildRecipeTable(recipes []models.Recipe, selectedIdx, width int) string {
+	// Fixed widths for courses, time, and status (content + listColPad).
+	// Status minimum = 12 content cols, enough for the widest badge "⠋ processing".
+	const (
+		coursesColWidth = 14 + listColPad // 16
+		timeColWidth    = 8 + listColPad  // 10
+		statusMinWidth  = 12 + listColPad // 14
+	)
 
-	nameStr := r.Name
-	if r.IsBread {
-		nameStr = "🍞 " + r.Name
+	// Name takes 60% of width. If that leaves the status column below its
+	// minimum, reduce name until status fits.
+	//
+	// All columns are fixed so their widths normally sum exactly to width,
+	// preventing any cell from wrapping and keeping every row at exactly 2
+	// terminal lines. Below ~60 columns the fixed columns alone exceed width
+	// and the table will overflow the pane; that is accepted since the list
+	// pane is 66% of the terminal and this only occurs below ~45 columns.
+	nameColWidth := width * 60 / 100
+	if nameColWidth < 20 {
+		nameColWidth = 20
 	}
-
-	// Build annotation suffix: rating glyphs and/or notes indicator.
-	suffix := ""
-	if g := r.RatingGlyphs(); g != "" {
-		suffix = " " + g
-	}
-	if r.Notes != "" {
-		suffix += " 📝"
-	}
-	// Reserve space for the suffix within the name column.
-	nameAvail := nw - len([]rune(suffix))
-	if nameAvail < 1 {
-		nameAvail = 1
-	}
-	name := truncate(nameStr, nameAvail) + suffix
-
-	courses := truncate(strings.Join(r.TagsByContext(models.TagContextCourses), ", "), 14)
-	timeStr := totalTimeStr(r.PreparationTime, r.CookingTime)
-	status := StatusBadge(r.Status)
-
-	row := fmt.Sprintf("  %-*s  %-14s  %-8s  %s", nw, name, courses, timeStr, status)
-
-	desc := truncate(r.Description, width-4)
-	if selected {
-		descLine := MutedStyle.Render("  " + desc)
-		if desc == "" {
-			descLine = MutedStyle.Render("  no description")
+	statusColWidth := width - nameColWidth - coursesColWidth - timeColWidth
+	if statusColWidth < statusMinWidth {
+		statusColWidth = statusMinWidth
+		nameColWidth = width - coursesColWidth - timeColWidth - statusColWidth
+		if nameColWidth < 20 {
+			nameColWidth = 20
 		}
-		return HighlightStyle.Width(width).Render(row + "\n" + descLine)
 	}
-	// Non-selected: keep the second line blank so the layout never jumps.
-	return row + "\n"
+	nameContentWidth := nameColWidth - listColPad
+
+	styleFunc := func(row, col int) lipgloss.Style {
+		var base lipgloss.Style
+		switch {
+		case row == table.HeaderRow:
+			base = MutedStyle
+		case row == selectedIdx:
+			base = HighlightStyle
+		default:
+			base = lipgloss.NewStyle()
+		}
+		switch col {
+		case 0:
+			return base.PaddingLeft(listColPad).Width(nameColWidth)
+		case 1:
+			return base.PaddingLeft(listColPad).Width(coursesColWidth)
+		case 2:
+			return base.PaddingLeft(listColPad).Width(timeColWidth)
+		default: // status
+			return base.PaddingLeft(listColPad).Width(statusColWidth)
+		}
+	}
+
+	t := table.New().
+		Headers("Name", "Courses", "Time", "Status").
+		StyleFunc(styleFunc).
+		Width(width).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderHeader(false).
+		BorderColumn(false).
+		BorderRow(false).
+		Wrap(true)
+
+	for i, r := range recipes {
+		nameStr := r.Name
+		if r.IsBread {
+			nameStr = "🍞 " + r.Name
+		}
+		suffix := ""
+		if g := r.RatingGlyphs(); g != "" {
+			suffix = " " + g
+		}
+		if r.Notes != "" {
+			suffix += " 📝"
+		}
+		nameAvail := nameContentWidth - lipgloss.Width(suffix)
+		if nameAvail < 1 {
+			nameAvail = 1
+		}
+		nameLine := truncateW(nameStr, nameAvail) + suffix
+
+		// Name cell is always 2 lines for layout stability.
+		var nameCell string
+		if i == selectedIdx {
+			desc := r.Description
+			if desc == "" {
+				desc = "no description"
+			}
+			descLine := lipgloss.NewStyle().Foreground(ColorMuted).Render(
+				truncateW(desc, nameContentWidth),
+			)
+			nameCell = nameLine + "\n" + descLine
+		} else {
+			nameCell = nameLine + "\n"
+		}
+
+		courses := truncateW(strings.Join(r.TagsByContext(models.TagContextCourses), ", "), 14)
+		timeStr := totalTimeStr(r.PreparationTime, r.CookingTime)
+		status := StatusBadge(r.Status)
+
+		t.Row(nameCell, courses, timeStr, status)
+	}
+
+	return t.String()
 }
 
 func renderFooter(width int) string {

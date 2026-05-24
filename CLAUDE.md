@@ -165,6 +165,53 @@ bar := lipgloss.NewStyle().
 sb.WriteString(bar)
 ```
 
+### Borderless list tables (`build*Table` pattern)
+
+Both `buildRecipeTable` (`recipe_list.go`) and `buildAIRunsTable` (`manage_ai_runs.go`) follow the same contract:
+
+- **`nil` (or empty) slice → header-only output**: pass `nil` when there are no data rows; the function still renders the column header so the empty-state layout matches the non-empty layout. Callers append `"\n"` and then an empty-state message below.
+- **`selectedIdx = -1` → no highlighted row**: compute as `cursor - offset`, then guard with `if selectedIdx < 0 || selectedIdx >= len(window) { selectedIdx = -1 }`.
+- **`width` is the container width in display columns**: each table function computes column widths that sum to `width`. If the fixed columns alone exceed `width` (very narrow terminal), the table will overflow the pane; that is accepted over a crash.
+
+**`listColPad` constant** (`recipe_list.go:502`) is the shared left-padding value applied to every table column. Both table builders use it. It lives in `recipe_list.go` but is package-visible, so `manage_ai_runs.go` can reference it without import.
+
+**Lipgloss `MaxHeight` quirk**: `t.String()` strips the trailing newline from the rendered table block. Every call site must append `"\n"` manually after the table string — that is why both `renderListPane` and `viewList` do:
+
+```go
+sb.WriteString(buildXxxTable(...))
+sb.WriteString("\n") // MaxHeight strips t.String()'s trailing \n; restore it
+```
+
+**Scroll alignment — always derive `dataRows` from a shared method**: the row count used to slice `m.runs`/`m.recipes` for display and the row count used as the scroll threshold in the key handler must be identical. If they differ by even 1, the selected row can scroll off-screen silently (the `selectedIdx >= rendered` guard snaps selection to -1).
+
+The pattern for manage-style screens is:
+
+```go
+// A method on the model — single source of truth for how many rows are displayed.
+func (m fooModel) listDataRows() int {
+    // listVisibleRows() = height - (banner + footer overhead).
+    // Subtract 1 for each line consumed before the first data row
+    // (e.g. leading blank line, table header).
+    v := m.listVisibleRows() - 2
+    if v < 1 { v = 1 }
+    return v
+}
+
+// In viewList:
+dataRows := m.listDataRows()
+end := m.offset + dataRows
+
+// In handleListKey "down":
+dataRows := m.listDataRows()
+if m.cursor >= m.offset+dataRows {
+    m.offset = m.cursor - dataRows + 1
+}
+```
+
+**`truncateW` vs `truncate`**: use `truncateW` (display-width-aware, in `recipe_list.go`) for any string that might contain emoji, rating glyphs (★☆), or other wide/non-ASCII characters — recipe names, descriptions, tag values, user-supplied text of any kind. Use `truncate` (rune-count, in `recipe_list.go`) only for strings that are guaranteed ASCII, such as fixed-format timestamps or known-ASCII status badges.
+
+**2-line row invariant in `buildRecipeTable`**: every cell in the name column embeds exactly one `"\n"` — either `nameLine + "\n"` (non-selected, blank second line) or `nameLine + "\n" + descLine` (selected, description second line). This keeps every recipe row at exactly 2 terminal lines with `Wrap(true)`. The description must be truncated with `truncateW` before embedding; otherwise a wide-character description could wrap inside the cell and push the row to 3+ lines, breaking layout stability.
+
 ## Export package (`internal/export/`)
 
 ### Adding a new export format
