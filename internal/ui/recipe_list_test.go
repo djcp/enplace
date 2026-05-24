@@ -1,11 +1,34 @@
 package ui
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/models"
 )
+
+// ── buildRecipeTable helpers ──────────────────────────────────────────────────
+
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// stripANSI removes ANSI escape sequences from s.
+func stripANSI(s string) string {
+	return ansiEscapeRe.ReplaceAllString(s, "")
+}
+
+// displayOffset returns the display-column offset (0-based) of the first
+// occurrence of substr in the plain (ANSI-stripped) string s.
+// Returns -1 if substr is not found.
+func displayOffset(s, substr string) int {
+	idx := strings.Index(s, substr)
+	if idx < 0 {
+		return -1
+	}
+	return lipgloss.Width(s[:idx])
+}
 
 // newTestListModel returns a minimal ListModel with autocomplete suggestions set.
 func newTestListModel() ListModel {
@@ -712,5 +735,162 @@ func TestNewListModel_InitialisesFromFilterState(t *testing.T) {
 	}
 	if len(m.allCourses) != 1 || m.allCourses[0] != "dinner" {
 		t.Errorf("allCourses: want [dinner], got %v", m.allCourses)
+	}
+}
+
+// ── buildRecipeTable ──────────────────────────────────────────────────────────
+
+func TestBuildRecipeTable_HeaderOnly(t *testing.T) {
+	out := buildRecipeTable(nil, -1, 80)
+	// lipgloss MaxHeight strips the trailing \n; header-only output has 0 newlines.
+	got := strings.Count(out, "\n")
+	if got != 0 {
+		t.Errorf("header-only: want 0 newlines, got %d", got)
+	}
+	plain := stripANSI(out)
+	for _, col := range []string{"Name", "Courses", "Time", "Status"} {
+		if !strings.Contains(plain, col) {
+			t.Errorf("header should contain %q", col)
+		}
+	}
+}
+
+func TestBuildRecipeTable_LineCount(t *testing.T) {
+	recipes := []models.Recipe{
+		{Name: "Pasta", Status: "published"},
+		{Name: "Salad", Status: "draft"},
+		{Name: "Soup", Status: "review"},
+	}
+	out := buildRecipeTable(recipes, -1, 80)
+	// lipgloss MaxHeight strips the trailing \n from the table block.
+	// Result: 2×N newlines (header line has no trailing \n in the output).
+	got := strings.Count(out, "\n")
+	want := 2 * len(recipes)
+	if got != want {
+		t.Errorf("lineCount: want %d newlines, got %d", want, got)
+	}
+}
+
+func TestBuildRecipeTable_SelectedRowShowsDescription(t *testing.T) {
+	desc := "A quick weeknight dish"
+	recipes := []models.Recipe{
+		{Name: "Pasta", Status: "published", Description: desc},
+		{Name: "Salad", Status: "draft", Description: "other"},
+	}
+	out := buildRecipeTable(recipes, 0, 80)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, desc) {
+		t.Errorf("selected row (idx 0) should contain description %q", desc)
+	}
+	// Non-selected row's description must not appear.
+	if strings.Contains(plain, "other") {
+		t.Error("non-selected row should not show description")
+	}
+}
+
+func TestBuildRecipeTable_NonSelectedRowHidesDescription(t *testing.T) {
+	desc := "Should not appear"
+	recipes := []models.Recipe{
+		{Name: "Pasta", Status: "published", Description: desc},
+	}
+	out := buildRecipeTable(recipes, -1, 80)
+	if strings.Contains(stripANSI(out), desc) {
+		t.Error("non-selected row must not show description")
+	}
+}
+
+func TestBuildRecipeTable_EmptyDescriptionFallback(t *testing.T) {
+	recipes := []models.Recipe{
+		{Name: "Pasta", Status: "published", Description: ""},
+	}
+	out := buildRecipeTable(recipes, 0, 80)
+	if !strings.Contains(stripANSI(out), "no description") {
+		t.Error("selected row with empty description should show fallback text")
+	}
+}
+
+// TestBuildRecipeTable_CoursesColumnAlignment verifies that the Courses column
+// header and data rows are horizontally aligned even when some rows have wide
+// emoji characters (🍞 prefix, ★ rating, 📝 notes indicator).
+func TestBuildRecipeTable_CoursesColumnAlignment(t *testing.T) {
+	rating := 4
+	notes := "delicious"
+	dinnerTag := models.Tag{Name: "dinner", Context: models.TagContextCourses}
+
+	recipes := []models.Recipe{
+		// Wide-char recipe: 🍞 prefix (2 cols) + ★ rating + 📝 (2 cols).
+		{
+			Name:    "Sourdough",
+			Status:  "published",
+			IsBread: true,
+			Rating:  &rating,
+			Notes:   notes,
+			Tags:    []models.Tag{dinnerTag},
+		},
+		// Plain recipe: no wide chars.
+		{
+			Name:   "Pasta Carbonara",
+			Status: "draft",
+			Tags:   []models.Tag{dinnerTag},
+		},
+	}
+
+	const width = 80
+	out := buildRecipeTable(recipes, -1, width)
+	lines := strings.Split(strings.TrimRight(stripANSI(out), "\n"), "\n")
+
+	if len(lines) < 5 {
+		t.Fatalf("expected at least 5 lines, got %d\noutput:\n%s", len(lines), out)
+	}
+
+	// lines[0] = header, lines[1] = row 0 name, lines[2] = row 0 blank,
+	// lines[3] = row 1 name, lines[4] = row 1 blank.
+	headerPos := displayOffset(lines[0], "Courses")
+	if headerPos < 0 {
+		t.Fatal("Courses not found in header")
+	}
+
+	row0Pos := displayOffset(lines[1], "dinner")
+	if row0Pos < 0 {
+		t.Fatalf("dinner not found in wide-char row (line 1);\nline: %q", lines[1])
+	}
+
+	row1Pos := displayOffset(lines[3], "dinner")
+	if row1Pos < 0 {
+		t.Fatalf("dinner not found in plain row (line 3);\nline: %q", lines[3])
+	}
+
+	if row0Pos != headerPos {
+		t.Errorf("wide-char row: dinner at col %d, Courses header at col %d (should match)",
+			row0Pos, headerPos)
+	}
+	if row1Pos != headerPos {
+		t.Errorf("plain row: dinner at col %d, Courses header at col %d (should match)",
+			row1Pos, headerPos)
+	}
+}
+
+// TestBuildRecipeTable_NameColumnWidth verifies that the name column occupies
+// 60% of the requested width.
+func TestBuildRecipeTable_NameColumnWidth(t *testing.T) {
+	const width = 100
+	nameColWant := width * 60 / 100 // 60
+
+	recipes := []models.Recipe{
+		{Name: "Recipe One", Status: "published"},
+	}
+	out := buildRecipeTable(recipes, -1, width)
+	lines := strings.Split(strings.TrimRight(stripANSI(out), "\n"), "\n")
+
+	if len(lines) < 1 {
+		t.Fatal("no output lines")
+	}
+
+	// "Courses" should start at exactly nameColWant + listColPad display cols.
+	want := nameColWant + listColPad
+	got := displayOffset(lines[0], "Courses")
+	if got != want {
+		t.Errorf("Courses starts at col %d; want %d (nameCol %d + pad %d)",
+			got, want, nameColWant, listColPad)
 	}
 }
