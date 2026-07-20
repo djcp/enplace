@@ -113,7 +113,9 @@ func (m ManageModel) View() string {
 				Render(opt.desc)
 			line = label + desc
 		}
-		sb.WriteString(line)
+		// Clip to the terminal width (ANSI-aware) so long descriptions
+		// never wrap and break the height math.
+		sb.WriteString(lipgloss.NewStyle().MaxWidth(m.width).Render(line))
 		sb.WriteString("\n")
 	}
 

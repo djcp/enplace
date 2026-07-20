@@ -1146,10 +1146,15 @@ func (m EditModel) buildForm() (string, int) {
 	}
 	write("\n")
 
-	// Ingredients section header.
+	// Ingredients section header. The rule fills the remaining form width
+	// after the label ("  Ingredients " = 14 cols) without overflowing.
+	sepW := w - 16
+	if sepW < 0 {
+		sepW = 0
+	}
 	sepLine := lipgloss.NewStyle().
 		Foreground(ColorBorder).
-		Render(strings.Repeat("─", w-4))
+		Render(strings.Repeat("─", sepW))
 	write("  " + MutedStyle.Bold(true).Render("Ingredients") + " " + sepLine + "\n")
 	write(MutedStyle.Render(fmt.Sprintf(
 		"  %-8s  %-13s  %-23s  %s",

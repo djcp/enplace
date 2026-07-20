@@ -474,10 +474,15 @@ func (m DetailModel) View() string {
 		listWidth := (m.width * 2) / 3
 		filterWidth := m.width - listWidth
 
+		// Build exactly vh content lines with no trailing newline so the
+		// joined block is exactly vh rows tall (a trailing \n would add a
+		// phantom row and push the footer past the bottom of the screen).
 		var lsb strings.Builder
 		for i := start; i < end; i++ {
 			lsb.WriteString(lines[i])
-			lsb.WriteString("\n")
+			if i < end-1 {
+				lsb.WriteString("\n")
+			}
 		}
 		for i := end - start; i < vh; i++ {
 			lsb.WriteString("\n")
