@@ -407,6 +407,27 @@ func TestBuildRecipeBlock_BreadSections(t *testing.T) {
 	}
 }
 
+// TestBuildRecipeBlock_ConsistentIndent pins the detail-body alignment: every
+// content line sits at the shared 2-column indent. Only section rules (full-
+// width structural chrome) may start at column 0.
+func TestBuildRecipeBlock_ConsistentIndent(t *testing.T) {
+	r := breadTestRecipe()
+	r.SourceURL = "https://example.com/recipe"
+	out := stripANSI(buildRecipeBlock(r, 96))
+
+	for i, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue // blank spacer line
+		}
+		if strings.Contains(line, "─┤") {
+			continue // section rule — full width by design
+		}
+		if !strings.HasPrefix(line, contentIndent) {
+			t.Errorf("line %d not indented %d cols: %q", i, len(contentIndent), line)
+		}
+	}
+}
+
 func TestBuildRecipeBlock_NonBreadOmitsMetrics(t *testing.T) {
 	r := breadTestRecipe()
 	r.IsBread = false

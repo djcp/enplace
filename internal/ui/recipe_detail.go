@@ -591,6 +591,12 @@ func (m DetailModel) buildLines() []string {
 }
 
 // buildRecipeBlock assembles the full styled recipe body as a single string.
+// contentIndent is the left indent applied to every content element in the
+// recipe detail body, matching the ingredient bullets and glamour's built-in
+// 2-space margin on directions. Section rules stay full width (structural
+// chrome, like the banner).
+const contentIndent = "  "
+
 func buildRecipeBlock(r *models.Recipe, width int) string {
 	var sb strings.Builder
 
@@ -598,7 +604,8 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	sb.WriteString(lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
-		Width(width).
+		Width(width - 2).
+		MarginLeft(2).
 		Render(r.Name))
 	sb.WriteString("\n")
 
@@ -615,10 +622,12 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		meta = append(meta, MutedStyle.Render(fmt.Sprintf("Serves %d %s", *r.Servings, units)))
 	}
 	if len(meta) > 0 {
+		sb.WriteString(contentIndent)
 		sb.WriteString(strings.Join(meta, MutedStyle.Render("  ·  ")))
 		sb.WriteString("\n")
 	}
 	if r.Rating != nil {
+		sb.WriteString(contentIndent)
 		sb.WriteString(MutedStyle.Render("Rating: "))
 		sb.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render(r.RatingGlyphs()))
 		sb.WriteString("\n")
@@ -631,6 +640,7 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 
 	// Tag pills.
 	if tags := buildTagPills(r); tags != "" {
+		sb.WriteString(contentIndent)
 		sb.WriteString(tags)
 		sb.WriteString("\n")
 	}
@@ -642,7 +652,8 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString(lipgloss.NewStyle().
 			Italic(true).
 			Foreground(ColorSubtle).
-			Width(width).
+			Width(width - 2).
+			MarginLeft(2).
 			Render(r.Description))
 		sb.WriteString("\n\n")
 	}
@@ -667,6 +678,7 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	// Source URL.
 	if r.SourceURL != "" {
 		sb.WriteString("\n")
+		sb.WriteString(contentIndent)
 		sb.WriteString(MutedStyle.Render("Source: " + r.SourceURL))
 		sb.WriteString("\n")
 	}
@@ -678,7 +690,8 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString("\n")
 		sb.WriteString(lipgloss.NewStyle().
 			Foreground(ColorMuted).
-			Width(width).
+			Width(width - 2).
+			MarginLeft(2).
 			Render(r.Notes))
 		sb.WriteString("\n")
 	}
@@ -707,7 +720,7 @@ func renderHydrationGauge(bm scaling.BreadMetricsResult, width int) string {
 		Render(fmt.Sprintf(" %.1f%%", bm.HydrationPct))
 	doughStr := MutedStyle.Render(fmt.Sprintf("  ·  %dg dough", totalG))
 
-	gaugeW := width - lipgloss.Width(label) - lipgloss.Width(pctStr) - lipgloss.Width(doughStr)
+	gaugeW := width - len(contentIndent) - lipgloss.Width(label) - lipgloss.Width(pctStr) - lipgloss.Width(doughStr)
 	if gaugeW > 32 {
 		gaugeW = 32
 	}
@@ -716,12 +729,14 @@ func renderHydrationGauge(bm scaling.BreadMetricsResult, width int) string {
 	}
 
 	var sb strings.Builder
+	sb.WriteString(contentIndent)
 	sb.WriteString(label)
 	sb.WriteString(renderGauge(hydrationGaugeFrac(bm.HydrationPct), gaugeW))
 	sb.WriteString(pctStr)
 	sb.WriteString(doughStr)
 	sb.WriteString("\n")
 	if bm.StarterCount > 0 {
+		sb.WriteString(contentIndent)
 		sb.WriteString(MutedStyle.Render("(100% hydration starter assumed)"))
 		sb.WriteString("\n")
 	}
