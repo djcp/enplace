@@ -137,35 +137,14 @@ func padRight(s string, width int) string {
 }
 
 func renderManageLandingBanner(width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render("manage"),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle("manage"), "", ColorBorder, ColorPrimary)
 }
 
 func renderManageLandingFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("↑/↓ navigate"),
-		MutedStyle.Render("enter open"),
-		MutedStyle.Render("esc back"),
+		keyHint("↑/↓", "navigate"),
+		keyHint("enter", "open"),
+		keyHint("esc", "back"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).

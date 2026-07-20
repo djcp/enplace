@@ -197,28 +197,14 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 	return fs, false
 }
 
-// renderFilterPane renders the filter pane with a left border separator.
-// scrollHint is an optional string shown at the bottom (e.g. "5–18 of 42"); pass "" to omit.
-func renderFilterPane(fs filterState, width, height int, scrollHint string) string {
+// renderFilterPanel renders the filter pane as a framed, titled panel.
+// width is the total panel width including borders; innerHeight is the
+// number of content lines inside the frame. The border lights up in the
+// accent colour while the pane is active.
+func renderFilterPanel(fs filterState, width, innerHeight int) string {
 	var sb strings.Builder
 
-	titleText := " Filters"
-	if fs.active {
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(titleText))
-	} else if fs.hasActiveFilters() {
-		sb.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render(titleText))
-	} else {
-		sb.WriteString(MutedStyle.Render(titleText))
-	}
 	sb.WriteString("\n")
-
-	dividerW := width - 2
-	if dividerW < 1 {
-		dividerW = 1
-	}
-	sb.WriteString(MutedStyle.Render(" " + strings.Repeat("─", dividerW)))
-	sb.WriteString("\n\n")
-
 	sb.WriteString(renderFilterPaneSearch(fs.query, fs.active && fs.focus == ffText))
 	sb.WriteString("\n\n")
 
@@ -246,36 +232,30 @@ func renderFilterPane(fs filterState, width, height int, scrollHint string) stri
 	sb.WriteString("\n\n")
 
 	sb.WriteString(renderFilterPaneSearchButton(fs.active && fs.focus == ffSearch))
-	sb.WriteString("\n")
-
-	// Info divider — separates actionable fields from informational text.
-	sb.WriteString("\n")
-	sb.WriteString(MutedStyle.Render(" " + strings.Repeat("─", dividerW)))
 	sb.WriteString("\n\n")
 
 	if fs.active {
-		sb.WriteString(MutedStyle.Render(" ↑↓/tab navigate · esc cancel"))
+		sb.WriteString(MutedStyle.Render(" ↑↓ move · esc cancel"))
 	} else {
 		sb.WriteString(MutedStyle.Render(" → or / to filter"))
 	}
-	sb.WriteString("\n")
 
-	if scrollHint != "" {
-		sb.WriteString("\n")
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorSecondary).Render(" " + scrollHint))
-		sb.WriteString("\n")
+	borderColor := ColorBorder
+	titleColor := ColorMuted
+	if fs.active {
+		borderColor = ColorPrimary
+		titleColor = ColorPrimary
+	} else if fs.hasActiveFilters() {
+		borderColor = ColorSecondary
+		titleColor = ColorSecondary
 	}
 
-	content := sb.String()
-	// Left border acts as the visual separator between the two panes.
-	// Width(width-1) + left border (1 char) = total filterWidth.
-	return lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#F5EDE6", Dark: "#211D1A"}).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(ColorSecondary).
-		Height(height).
-		Width(width - 1).
-		Render(content)
+	bottom := ""
+	if fs.hasActiveFilters() {
+		bottom = "● active"
+	}
+
+	return framePanel(sb.String(), width, innerHeight, "⚙ filters", "", bottom, borderColor, titleColor)
 }
 
 // renderFilterPaneSearch renders the text-search row for the filter pane.

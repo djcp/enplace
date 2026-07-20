@@ -222,8 +222,10 @@ func (m ScaleModel) computeFactor() (float64, string) {
 	return target / current, ""
 }
 
+// viewportHeight returns the visible content lines in the view phase.
+// Overhead: banner rule (1) + blank-before-footer (1) + footer (2) = 4.
 func (m ScaleModel) viewportHeight() int {
-	v := m.height - 8
+	v := m.height - 4
 	if v < 4 {
 		v = 4
 	}
@@ -268,6 +270,12 @@ func (m ScaleModel) View() string {
 		sb.WriteString(renderScaleInputBanner(m.recipe.Name, m.recipe.IsBread, m.width))
 		sb.WriteString("\n")
 		sb.WriteString(m.renderInputPhase())
+		// Fill so the footer is pinned to the bottom of the screen.
+		used := strings.Count(sb.String(), "\n")
+		if fill := m.height - used - 3; fill > 0 {
+			sb.WriteString(strings.Repeat("\n", fill))
+		}
+		sb.WriteString("\n")
 		sb.WriteString(renderScaleInputFooter(m.canUseWeight, m.width))
 		return sb.String()
 	}
@@ -361,48 +369,29 @@ func formatFactor(f float64) string {
 func renderScaleInputBanner(recipeName string, isBread bool, width int) string {
 	displayName := truncate(recipeName, width-30)
 	if isBread {
-		displayName += "  🍞"
+		displayName += " 🍞"
 	}
-	breadcrumb := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(
-		"🍳  enplace  " + MutedStyle.Render("/") + "  " +
-			lipgloss.NewStyle().Bold(false).Foreground(ColorSubtle).
-				Render(displayName+" / Scale"),
-	)
-	title := lipgloss.NewStyle().Padding(1, 2).Render(breadcrumb)
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle(displayName+" / scale"), "", ColorBorder, ColorPrimary)
 }
 
 func renderScaleViewBanner(recipeName string, isBread bool, factor float64, width int) string {
-	factorLabel := "×" + formatFactor(factor)
 	displayName := truncate(recipeName, width-30)
 	if isBread {
-		displayName += "  🍞"
+		displayName += " 🍞"
 	}
-	subtitle := displayName + " / Scale " + factorLabel
-
-	breadcrumb := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(
-		"🍳  enplace  " + MutedStyle.Render("/") + "  " +
-			lipgloss.NewStyle().Bold(false).Foreground(ColorSubtle).Render(subtitle),
-	)
-	title := lipgloss.NewStyle().Padding(1, 2).Render(breadcrumb)
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width,
+		breadcrumbTitle(displayName+" / scale"),
+		"×"+formatFactor(factor),
+		ColorBorder, ColorSecondary)
 }
 
 func renderScaleInputFooter(canWeight bool, width int) string {
 	keys := []string{
-		MutedStyle.Render("enter confirm"),
-		MutedStyle.Render("esc back"),
+		keyHint("enter", "confirm"),
+		keyHint("esc", "back"),
 	}
 	if canWeight {
-		keys = append([]string{MutedStyle.Render("tab switch field")}, keys...)
+		keys = append([]string{keyHint("tab", "switch field")}, keys...)
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
@@ -414,10 +403,10 @@ func renderScaleInputFooter(canWeight bool, width int) string {
 
 func renderScaleViewFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("↑/↓ scroll"),
-		MutedStyle.Render("p print/export"),
-		MutedStyle.Render("esc change factor"),
-		MutedStyle.Render("q quit"),
+		keyHint("↑/↓", "scroll"),
+		keyHint("p", "print/export"),
+		keyHint("esc", "change factor"),
+		keyHint("q", "quit"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).

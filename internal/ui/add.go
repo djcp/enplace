@@ -383,7 +383,9 @@ func (m AddModel) View() string {
 	sb.WriteString(renderAddBanner(subtitle, m.width))
 	sb.WriteString("\n")
 
-	contentHeight := m.height - 9
+	// Banner rule (1) + blank-after-content (1) + footer (2) = 4, plus the
+	// same 2-line slack the old layout carried.
+	contentHeight := m.height - 6
 	if contentHeight < 3 {
 		contentHeight = 3
 	}
@@ -509,30 +511,9 @@ func (m AddModel) viewProgress(contentHeight int) string {
 	return sb.String()
 }
 
-// renderAddBanner renders a "🍳  enplace / <subtitle>" banner.
+// renderAddBanner renders a "🍳 enplace / <subtitle>" one-line banner rule.
 func renderAddBanner(subtitle string, width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render(subtitle),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle(subtitle), "", ColorBorder, ColorPrimary)
 }
 
 // renderAddFooter renders keybinding hints appropriate for the current phase.
@@ -540,20 +521,20 @@ func renderAddFooter(pasteMode, retryMode bool, phase addPhase, width int) strin
 	var keys []string
 	switch phase {
 	case addPhaseProgress:
-		keys = []string{"ctrl+c quit"}
+		keys = []string{keyHint("ctrl+c", "quit")}
 	case addPhaseResult:
 		if retryMode {
-			keys = []string{"esc back"}
+			keys = []string{keyHint("esc", "back")}
 		} else {
-			keys = []string{"a add another", "h home", "q quit"}
+			keys = []string{keyHint("a", "add another"), keyHint("h", "home"), keyHint("q", "quit")}
 		}
 	case addPhaseMode:
-		keys = []string{"↑/↓ select", "enter confirm", "esc back"}
+		keys = []string{keyHint("↑/↓", "select"), keyHint("enter", "confirm"), keyHint("esc", "back")}
 	default:
 		if pasteMode {
-			keys = []string{"ctrl+d submit", "esc back"}
+			keys = []string{keyHint("ctrl+d", "submit"), keyHint("esc", "back")}
 		} else {
-			keys = []string{"enter submit", "esc back"}
+			keys = []string{keyHint("enter", "submit"), keyHint("esc", "back")}
 		}
 	}
 	return lipgloss.NewStyle().

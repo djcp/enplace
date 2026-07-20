@@ -119,8 +119,8 @@ func (m manageAIRunsModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m manageAIRunsModel) listVisibleRows() int {
-	// Banner(4) + footer(2) = 6
-	v := m.height - 6
+	// Banner rule(1) + blank-before-footer(1) + footer(2) = 4
+	v := m.height - 4
 	if v < 1 {
 		v = 1
 	}
@@ -138,6 +138,11 @@ func (m manageAIRunsModel) listDataRows() int {
 	// Subtract 1 for the leading blank line at the top of viewList,
 	// and 1 for the lipgloss table header row.
 	v := m.listVisibleRows() - 2
+	if m.listNotice != "" {
+		// The inline notice consumes two lines (blank + notice) above the
+		// footer; shrink the data window so the screen height stays exact.
+		v -= 2
+	}
 	if v < 1 {
 		v = 1
 	}
@@ -229,8 +234,8 @@ func (m manageAIRunsModel) handleDeleteConfirmKey(msg tea.KeyMsg) (tea.Model, te
 }
 
 func (m manageAIRunsModel) detailViewportHeight() int {
-	// Banner(4) + header(2) + footer(2) = 8
-	v := m.height - 8
+	// Banner rule(1) + summary header(3) + blank-before-footer(1) + footer(2) = 6
+	v := m.height - 6
 	if v < 1 {
 		v = 1
 	}
@@ -375,7 +380,7 @@ func (m manageAIRunsModel) viewList() string {
 			noticeStyle = ErrorStyle
 		}
 		used := strings.Count(sb.String(), "\n")
-		if fill := m.height - used - 5; fill > 0 {
+		if fill := m.height - used - 6; fill > 0 {
 			sb.WriteString(strings.Repeat("\n", fill))
 		}
 		sb.WriteString("\n")
@@ -383,7 +388,7 @@ func (m manageAIRunsModel) viewList() string {
 		sb.WriteString("\n")
 	} else {
 		used := strings.Count(sb.String(), "\n")
-		if fill := m.height - used - 3; fill > 0 {
+		if fill := m.height - used - 4; fill > 0 {
 			sb.WriteString(strings.Repeat("\n", fill))
 		}
 	}

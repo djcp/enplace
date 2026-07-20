@@ -303,27 +303,34 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m ListModel) visibleRows() int {
-	// Banner (4) + col header (1) + blank-before-footer (1) + footer (2) = 8 fixed overhead,
-	// plus 1 for the terminal line between banner and content = 9 total.
-	// Each recipe row is always 2 terminal lines (name/status + description), so divide by 2.
-	v := (m.height - 9) / 2
+	// Panel top border (1) + col header (1) + panel bottom border (1) +
+	// footer (2) = 5 fixed overhead. Each recipe row is always 2 terminal
+	// lines (name/status + description), so divide the remainder by 2.
+	v := (m.height - 5) / 2
 	if v < 1 {
 		v = 1
 	}
 	return v
 }
 
+// panelInnerHeight returns the content height inside the list/filter panels:
+// everything except the two border lines and the two footer lines.
+func (m ListModel) panelInnerHeight() int {
+	ih := m.height - 4
+	if ih < 3 {
+		ih = 3
+	}
+	return ih
+}
+
 func (m ListModel) View() string {
 	var sb strings.Builder
 
-	// Banner — full width.
-	sb.WriteString(renderBanner(m.width))
-	sb.WriteString("\n")
-
 	// Delete confirmation overlay — replaces split content and footer.
 	if m.confirmingDelete {
-		confirmContent := m.viewConfirm()
-		sb.WriteString(confirmContent)
+		sb.WriteString(flatRule(m.width, "🍳 enplace", "", ColorBorder, ColorPrimary))
+		sb.WriteString("\n")
+		sb.WriteString(m.viewConfirm())
 		used := strings.Count(sb.String(), "\n")
 		if fill := m.height - used - 3; fill > 0 {
 			sb.WriteString(strings.Repeat("\n", fill))
@@ -335,6 +342,8 @@ func (m ListModel) View() string {
 
 	// Empty DB — show a centered info box with fill so the footer stays pinned.
 	if len(m.recipes) == 0 && !m.hasActiveFilters() && !m.typing {
+		sb.WriteString(flatRule(m.width, "🍳 enplace", "", ColorBorder, ColorPrimary))
+		sb.WriteString("\n")
 		sb.WriteString(m.viewEmpty())
 		used := strings.Count(sb.String(), "\n")
 		if fill := m.height - used - 3; fill > 0 {
@@ -345,13 +354,18 @@ func (m ListModel) View() string {
 		return sb.String()
 	}
 
-	// Split layout: list pane (66%) on the left, filter pane (33%) on the right.
+	// Split layout: list panel (66%) on the left, filter panel (33%) on the right.
 	listWidth := (m.width * 2) / 3
 	filterWidth := m.width - listWidth
-	contentH := 2*m.visibleRows() + 1 // col header (1) + visible rows × 2 lines each
+	innerH := m.panelInnerHeight()
 
-	leftPane := m.renderListPane(listWidth)
-	rightPane := m.renderFilterPane(filterWidth, contentH)
+	leftPane := framePanel(
+		m.renderListPane(listWidth-2),
+		listWidth, innerH,
+		"🍳 enplace", "", m.scrollHint(),
+		ColorBorder, ColorPrimary,
+	)
+	rightPane := renderFilterPanel(m.toFilterState(), filterWidth, innerH)
 
 	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
 	sb.WriteString("\n")
@@ -360,21 +374,38 @@ func (m ListModel) View() string {
 	return sb.String()
 }
 
-// renderListPane renders the left pane (column headers + recipe rows + fill).
+// scrollHint returns the bottom-border position indicator for the list panel:
+// "5–18 of 42" when scrollable, "N recipes" otherwise, "" when empty.
+func (m ListModel) scrollHint() string {
+	if len(m.recipes) == 0 {
+		return ""
+	}
+	visible := m.visibleRows()
+	if len(m.recipes) > visible {
+		end := m.offset + visible
+		if end > len(m.recipes) {
+			end = len(m.recipes)
+		}
+		return fmt.Sprintf("%d–%d of %d", m.offset+1, end, len(m.recipes))
+	}
+	if len(m.recipes) == 1 {
+		return "1 recipe"
+	}
+	return fmt.Sprintf("%d recipes", len(m.recipes))
+}
+
+// renderListPane renders the list panel content (column headers + recipe
+// rows) at the given content width. Vertical fill is handled by framePanel.
 func (m ListModel) renderListPane(width int) string {
 	var sb strings.Builder
 	visible := m.visibleRows()
 
 	if len(m.recipes) == 0 {
-		// Header row only, then no-match message, then fill to full height.
+		// Header row only, then no-match message.
 		// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
 		sb.WriteString(buildRecipeTable(nil, -1, width))
 		sb.WriteString("\n")
 		sb.WriteString(MutedStyle.Render("  No recipes match the current filters."))
-		sb.WriteString("\n")
-		for i := 1; i < 2*visible; i++ {
-			sb.WriteString("\n")
-		}
 		return sb.String()
 	}
 
@@ -390,27 +421,7 @@ func (m ListModel) renderListPane(width int) string {
 
 	// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
 	sb.WriteString(buildRecipeTable(m.recipes[m.offset:end], selectedIdx, width))
-	sb.WriteString("\n")
-	// Fill remaining viewport slots — each slot is 2 terminal lines.
-	for i := rendered; i < visible; i++ {
-		sb.WriteString("\n\n")
-	}
-
 	return sb.String()
-}
-
-// renderFilterPane renders the right pane (filter inputs + scroll info) with a left border separator.
-func (m ListModel) renderFilterPane(width, height int) string {
-	var scrollHint string
-	visible := m.visibleRows()
-	if len(m.recipes) > visible {
-		end := m.offset + visible
-		if end > len(m.recipes) {
-			end = len(m.recipes)
-		}
-		scrollHint = fmt.Sprintf("%d–%d of %d", m.offset+1, end, len(m.recipes))
-	}
-	return renderFilterPane(m.toFilterState(), width, height, scrollHint)
 }
 
 var statusCycle = []string{"", "draft", "review", "published"}
@@ -451,30 +462,6 @@ func resolveMatch(buffer string, suggestions []string) string {
 		return match
 	}
 	return buffer
-}
-
-func renderBanner(width int) string {
-	appName := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render("🍳  enplace")
-
-	hints := MutedStyle.Render("🔍 / search") + "   " + MutedStyle.Render("⚙ m manage") + "   " + MutedStyle.Render("🏠 h home") + "   " + MutedStyle.Render("🚪 q quit")
-	innerWidth := width - 6 // border(2) + padding(2+2)
-	gap := innerWidth - lipgloss.Width(appName) - lipgloss.Width(hints)
-	if gap < 1 {
-		gap = 1
-	}
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(appName + strings.Repeat(" ", gap) + hints)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
 }
 
 func totalTimeStr(prepMins, cookMins *int) string {
@@ -658,11 +645,14 @@ func buildRecipeTable(recipes []models.Recipe, selectedIdx, width int) string {
 
 func renderFooter(width int) string {
 	keys := []string{
-		"📜 ↑/↓ scroll",
-		"👁 enter view",
-		"✏️ e edit",
-		"🗑 d delete",
-		"➕ a add",
+		keyHint("↑/↓", "scroll"),
+		keyHint("enter", "view"),
+		keyHint("e", "edit"),
+		keyHint("d", "delete"),
+		keyHint("a", "add"),
+		keyHint("/", "filter"),
+		keyHint("m", "manage"),
+		keyHint("q", "quit"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
@@ -717,8 +707,8 @@ func (m ListModel) viewConfirm() string {
 }
 
 func renderConfirmFooter(width int) string {
-	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("🗑 y delete")
-	line := "  " + yKey + "   " + MutedStyle.Render("✖ esc cancel")
+	yKey := lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("y") + " " + MutedStyle.Render("delete")
+	line := "  " + yKey + "   " + keyHint("esc", "cancel")
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
