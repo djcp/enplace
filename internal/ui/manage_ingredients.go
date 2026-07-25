@@ -133,7 +133,7 @@ func (m manageIngredientsModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m manageIngredientsModel) visibleRows() int {
-	// Banner(4) + search(2) + header(1) + footer(2) = 9
+	// Banner rule(1) + blank(1) + search box(3) + blank(1) + blank-before-footer(1) + footer(2) = 9
 	v := m.height - 9
 	if v < 1 {
 		v = 1
@@ -368,7 +368,7 @@ func (m manageIngredientsModel) viewBrowse() string {
 	}
 
 	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
+	if fill := m.height - used - 4; fill > 0 {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
@@ -391,7 +391,7 @@ func (m manageIngredientsModel) viewEdit() string {
 	sb.WriteString(box)
 	sb.WriteString("\n")
 	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
+	if fill := m.height - used - 4; fill > 0 {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
@@ -405,7 +405,7 @@ func (m manageIngredientsModel) viewMerge() string {
 	sb.WriteString(MutedStyle.Render(fmt.Sprintf("  Merge '%s' into…", m.mergeSourceName)))
 	sb.WriteString("\n\n")
 
-	visible := m.height - 8
+	visible := m.height - 7
 	if visible < 1 {
 		visible = 1
 	}
@@ -432,7 +432,7 @@ func (m manageIngredientsModel) viewMerge() string {
 	}
 
 	used := strings.Count(sb.String(), "\n")
-	if fill := m.height - used - 3; fill > 0 {
+	if fill := m.height - used - 4; fill > 0 {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")

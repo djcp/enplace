@@ -896,8 +896,8 @@ func (m EditModel) formWidth() int {
 
 // viewportHeight is the scrollable area height.
 func (m EditModel) viewportHeight() int {
-	// banner (4) + footer (2) + error line (1 if present)
-	overhead := 7
+	// banner rule (1) + footer (2) + error line (1 if present)
+	overhead := 4
 	if m.errMsg != "" {
 		overhead++
 	}
@@ -927,7 +927,7 @@ func (m EditModel) View() string {
 		overlayLines := strings.Count(overlay, "\n") + 1
 		sb.WriteString(overlay)
 		// Pad remaining space then show footer.
-		used := 2 + overlayLines // banner(~4 lines) + \n + overlay
+		used := 1 + overlayLines // banner rule (1 line) + overlay
 		if fill := m.height - used - 3; fill > 0 {
 			sb.WriteString(strings.Repeat("\n", fill))
 		}
@@ -1146,10 +1146,15 @@ func (m EditModel) buildForm() (string, int) {
 	}
 	write("\n")
 
-	// Ingredients section header.
+	// Ingredients section header. The rule fills the remaining form width
+	// after the label ("  Ingredients " = 14 cols) without overflowing.
+	sepW := w - 16
+	if sepW < 0 {
+		sepW = 0
+	}
 	sepLine := lipgloss.NewStyle().
 		Foreground(ColorBorder).
-		Render(strings.Repeat("─", w-4))
+		Render(strings.Repeat("─", sepW))
 	write("  " + MutedStyle.Bold(true).Render("Ingredients") + " " + sepLine + "\n")
 	write(MutedStyle.Render(fmt.Sprintf(
 		"  %-8s  %-13s  %-23s  %s",
@@ -1276,44 +1281,17 @@ func (m EditModel) assembleRecipe() (*models.Recipe, map[string][]string) {
 	return r, tagNames
 }
 
-// renderEditBanner renders the banner with "🍳  enplace  /  [name] / Edit".
+// renderEditBanner renders the one-line banner rule with "enplace / [name] / edit".
 func renderEditBanner(name string, width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render(truncate(name, width-30)+" / Edit"),
-		)
-
-	contentWidth := width - 6
-	gap := contentWidth - lipgloss.Width(breadcrumb)
-	if gap < 1 {
-		gap = 1
-	}
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb + strings.Repeat(" ", gap))
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle(truncate(name, width-30)+" / edit"), "", ColorBorder, ColorPrimary)
 }
 
 func renderEditFooter(width int) string {
 	keys := []string{
-		"↑↓/⇥ tab next",
-		"↓↑/⇤ shift+tab back",
-		"💾 ctrl+s save",
-		"✖ esc cancel",
+		keyHint("tab", "next"),
+		keyHint("shift+tab", "back"),
+		lipgloss.NewStyle().Bold(true).Foreground(ColorSecondary).Render("ctrl+s") + " " + MutedStyle.Render("save"),
+		keyHint("esc", "cancel"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).

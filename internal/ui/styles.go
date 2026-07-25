@@ -14,7 +14,7 @@ var (
 	ColorSecondary = lipgloss.AdaptiveColor{Light: "#7C9E6E", Dark: "#90B882"} // sage green
 	ColorMuted     = lipgloss.AdaptiveColor{Light: "#8E8178", Dark: "#A89888"} // warm gray
 	ColorFaint     = lipgloss.AdaptiveColor{Light: "#B8B0A8", Dark: "#685E56"} // subtle — version tags
-	ColorBorder    = lipgloss.AdaptiveColor{Light: "#DDD5CC", Dark: "#3C3028"} // border
+	ColorBorder    = lipgloss.AdaptiveColor{Light: "#D8CDC0", Dark: "#4A3B30"} // border / panel frames
 	ColorBg        = lipgloss.AdaptiveColor{Light: "#FDF8F3", Dark: "#1A1614"} // background
 	ColorSuccess   = lipgloss.AdaptiveColor{Light: "#5A8A5A", Dark: "#70A870"} // muted green
 	ColorWarning   = lipgloss.AdaptiveColor{Light: "#B8832A", Dark: "#D4983A"} // amber
@@ -23,6 +23,10 @@ var (
 
 	// ColorSubtle is a warm brown used for secondary/breadcrumb text.
 	ColorSubtle = lipgloss.AdaptiveColor{Light: "#5C4A3C", Dark: "#BCA898"}
+	// ColorTeal — cultural-influence tags and "wet" ingredient bars.
+	ColorTeal = lipgloss.AdaptiveColor{Light: "#4A8A8A", Dark: "#5AACAC"}
+	// ColorPurple — dietary tags and "starter" ingredient bars.
+	ColorPurple = lipgloss.AdaptiveColor{Light: "#7A6E9E", Dark: "#9A8EC0"}
 	// ColorHighlightFg is the foreground text colour used on highlighted (selected) rows.
 	ColorHighlightFg = lipgloss.AdaptiveColor{Light: "#2D1810", Dark: "#F5EAE0"}
 
@@ -95,9 +99,9 @@ func TagStyle(context string) lipgloss.Style {
 	case "cooking_methods":
 		color = ColorSecondary
 	case "cultural_influences":
-		color = lipgloss.AdaptiveColor{Light: "#7A6E9E", Dark: "#9A8EC0"} // muted purple
+		color = ColorPurple
 	case "dietary_restrictions":
-		color = lipgloss.AdaptiveColor{Light: "#4A8A8A", Dark: "#5AACAC"} // teal
+		color = ColorTeal
 	}
 	return lipgloss.NewStyle().
 		Background(color).
@@ -153,7 +157,9 @@ func footerLine(keys []string, innerWidth int) string {
 	right := lipgloss.NewStyle().Foreground(ColorFaint).Render("enplace " + version.Version)
 	gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
-		gap = 1
+		// Not enough room for the version tag — clip the hints instead of
+		// wrapping onto a second line (which would break screen height math).
+		return lipgloss.NewStyle().MaxWidth(innerWidth).Render(left)
 	}
 	return left + strings.Repeat(" ", gap) + right
 }
@@ -181,39 +187,31 @@ func restoredCursorByID(seekID int64, prevCursor, listLen int, idAt func(int) in
 	return cursor, offset
 }
 
-// renderManageBanner renders the breadcrumb banner shared by all manage sub-screens.
-// pageName is the current section, e.g. "tags", "ingredients", "serving units".
+// renderManageBanner renders the one-line breadcrumb banner rule shared by
+// all manage sub-screens. pageName is the current section, e.g. "tags",
+// "ingredients", "serving units".
 func renderManageBanner(pageName string, width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  manage  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render(pageName),
-		)
-	title := lipgloss.NewStyle().Padding(1, 2).Render(breadcrumb)
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle("manage / "+pageName), "", ColorBorder, ColorPrimary)
 }
 
 // renderManageFooter renders the standard manage-screen key-hint footer.
+// Each entry is a plain "key label" string; the leading word is styled as
+// the key (bold accent) and the remainder as the muted label.
 func renderManageFooter(keys []string, width int) string {
+	styled := make([]string, len(keys))
+	for i, k := range keys {
+		if sp := strings.Index(k, " "); sp > 0 {
+			styled[i] = keyHint(k[:sp], k[sp+1:])
+		} else {
+			styled[i] = MutedStyle.Render(k)
+		}
+	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(ColorBorder).
 		Width(width - 2).
-		Render(footerLine(keys, width-2))
+		Render(footerLine(styled, width-2))
 }
 
 // renderManageConfirmFooter renders a yes/no footer: a bold coloured "y <action>"
@@ -246,7 +244,7 @@ func viewManageResult(msg string, isErr bool, width, height int, footerStr strin
 	sb.WriteString(lipgloss.PlaceHorizontal(width, lipgloss.Center, box))
 	sb.WriteString("\n")
 	used := strings.Count(sb.String(), "\n")
-	if fill := height - used - 3; fill > 0 {
+	if fill := height - used - 4; fill > 0 {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")
@@ -271,7 +269,7 @@ func buildCenteredBox(title string, titleColor, borderColor lipgloss.TerminalCol
 	sb.WriteString(lipgloss.PlaceHorizontal(width, lipgloss.Center, box))
 	sb.WriteString("\n")
 	used := strings.Count(sb.String(), "\n")
-	if fill := height - used - 3; fill > 0 {
+	if fill := height - used - 4; fill > 0 {
 		sb.WriteString(strings.Repeat("\n", fill))
 	}
 	sb.WriteString("\n")

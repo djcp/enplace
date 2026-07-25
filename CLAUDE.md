@@ -131,6 +131,59 @@ This pattern avoids the previous approach of setting `m.dsnNotice` (a dead field
 
 ## UI / lipgloss rendering
 
+### Chrome layer (`internal/ui/chrome.go`)
+
+All screen chrome (btop-inspired) is built from the primitives in `chrome.go`:
+
+- **`framePanel(content, width, innerHeight, topLeft, topRight, bottom, borderColor, titleColor)`** —
+  full titled panel frame (`╭─┫ title ┣───╮ … ╰──┫ bottom ┣─╯`). Content is
+  clipped (ANSI-aware `MaxWidth`) and padded to exactly `innerHeight` lines.
+  Used by the recipe list panel and the filter panel.
+- **`flatRule(width, title, right, …)` / `flatRuleStyled(…)`** — one-line titled
+  rule used as the banner on every non-panel screen (`─┫ 🍳 enplace / … ┣───`).
+  `flatRuleStyled` takes a pre-styled title segment; build breadcrumbs with
+  `breadcrumbTitle(trail)` (in `recipe_detail.go`).
+- **`sectionRule(width, label)`** — quiet titled rule (`─┤ Ingredients ├──`) for
+  section headers inside reading views. Deliberately lighter than panel borders.
+- **`keyHint(key, label)`** — footer hint: bold-accent key + muted label. All
+  footers use these; `renderManageFooter` splits plain `"key label"` strings
+  itself, so manage call sites keep passing plain strings.
+- **`renderGauge(frac, width)`** — gradient block gauge (btop-style: cells
+  coloured by absolute position along the ramp). Hydration uses
+  `hydrationGaugeFrac(pct)` which maps 50–105% hydration onto the gauge.
+- **`renderBar(frac, width, color)`** — single-colour bar with eighth-block
+  partial end, for the baker's-percentages chart. Colours come from
+  `ingredientTypeColor(type)` (flour=primary, wet=teal, dry=amber,
+  starter=purple, fat=muted).
+
+**Design rule: dashboard surfaces get panels, reading surfaces stay calm.**
+The recipe list + filter pane are framed panels; the detail/scale/print views
+get only the one-line banner rule, `sectionRule` headers, and the bread gauges —
+no boxes around prose.
+
+### Screen height accounting — the "-4" fill convention
+
+Banners are exactly **1 row** (`flatRule`), standard footers are **2 rows**
+(border-top + hint line). Screens pin their footer with newline-counting fill.
+Two patterns exist — do not mix them up:
+
+1. **Outer-builder screens** (recipe list overlays, detail, config, manage
+   landing): `used := strings.Count(sb.String(), "\n")` counts everything
+   including the banner → fill target is `m.height - used - 3`.
+2. **Manage phase views** (tags/units/ingredients/AI-runs sub-views,
+   `viewManageResult`, `buildCenteredBox`): the local builder does **not**
+   include the banner (written by the outer `View()`), so the fill target is
+   `m.height - used - 4` — one extra for the banner row.
+
+Fixed row-count methods (`visibleRows`, `listVisibleRows`, `browseVisibleRows`,
+`detailViewportHeight`, etc.) each document their overhead sum in a comment.
+If you change any screen's banner/footer structure, re-verify empirically:
+render `View()` at a fixed `tea.WindowSizeMsg` height in a scratch test and
+count `strings.Split(out, "\n")` — it must equal the terminal height exactly.
+
+`footerLine` clips its hints (ANSI-aware) instead of wrapping when the hints +
+version tag exceed the width; never let a footer wrap, it breaks height math.
+
 ### Centering multi-line blocks (dialogs, forms, overlays)
 
 Never use `strings.Repeat(" ", leftPad) + block` to center a multi-line lipgloss-rendered string.

@@ -61,8 +61,15 @@ capture() {
     sleep 4
 
     if [[ "$page" == "detail" ]]; then
-        # Navigate into the first recipe and wait for the detail view to render
-        tmux send-keys -t "$session" Enter
+        # Filter to a bread recipe so the detail view shows the hydration
+        # gauge and baker's-percentage bars, then open the first match.
+        tmux send-keys -t "$session" /
+        sleep 1
+        tmux send-keys -t "$session" "sourdough"
+        sleep 1
+        tmux send-keys -t "$session" Enter   # confirm search
+        sleep 3
+        tmux send-keys -t "$session" Enter   # open the first result
         sleep 4
     fi
 

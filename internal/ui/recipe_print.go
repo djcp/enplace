@@ -58,8 +58,10 @@ func newPrintModel(recipe *models.Recipe, opts export.Options) PrintModel {
 
 func (m PrintModel) Init() tea.Cmd { return nil }
 
+// viewportHeight returns the visible preview lines.
+// Overhead: banner rule (1) + blank-before-footer (1) + footer (2) = 4.
 func (m PrintModel) viewportHeight() int {
-	v := m.height - 7
+	v := m.height - 4
 	if v < 1 {
 		v = 1
 	}
@@ -341,54 +343,23 @@ func (m PrintModel) buildPreviewLines() []string {
 }
 
 func renderPrintBanner(name string, isBread bool, width int) string {
-	hint := MutedStyle.Render("💾 export preview")
-	hintWidth := lipgloss.Width(hint)
-
-	maxNameLen := width - 26 - hintWidth - 2
+	maxNameLen := width - 40
 	if maxNameLen < 8 {
 		maxNameLen = 8
 	}
-
 	displayName := truncate(name, maxNameLen)
 	if isBread {
-		displayName += "  🍞"
+		displayName += " 🍞"
 	}
-
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render(displayName),
-		)
-
-	contentWidth := width - 6
-	gap := contentWidth - lipgloss.Width(breadcrumb) - hintWidth
-	if gap < 1 {
-		gap = 1
-	}
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb + strings.Repeat(" ", gap) + hint)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle(displayName),
+		"export preview", ColorBorder, ColorSecondary)
 }
 
 func renderPrintPreviewFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("📜 ↑/↓ scroll"),
-		MutedStyle.Render("💾 p export"),
-		MutedStyle.Render("✖ esc back"),
+		keyHint("↑/↓", "scroll"),
+		keyHint("p", "export"),
+		keyHint("esc", "back"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
@@ -400,9 +371,9 @@ func renderPrintPreviewFooter(width int) string {
 
 func renderFormatSelectFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("📜 ↑/↓ navigate"),
-		MutedStyle.Render("👁 enter select"),
-		MutedStyle.Render("✖ esc back"),
+		keyHint("↑/↓", "navigate"),
+		keyHint("enter", "select"),
+		keyHint("esc", "back"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).

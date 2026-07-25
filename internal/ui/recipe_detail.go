@@ -144,8 +144,9 @@ func (m DetailModel) ReturnFilter() FilterState { return m.filter.toPublicFilter
 func (m DetailModel) Init() tea.Cmd { return nil }
 
 // viewportHeight returns the number of content lines visible in the viewport.
+// Overhead: banner rule (1) + blank-before-footer (1) + footer (2) = 4.
 func (m DetailModel) viewportHeight() int {
-	v := m.height - 7
+	v := m.height - 4
 	if v < 1 {
 		v = 1
 	}
@@ -473,19 +474,28 @@ func (m DetailModel) View() string {
 		listWidth := (m.width * 2) / 3
 		filterWidth := m.width - listWidth
 
+		// Build exactly vh content lines with no trailing newline so the
+		// joined block is exactly vh rows tall (a trailing \n would add a
+		// phantom row and push the footer past the bottom of the screen).
 		var lsb strings.Builder
 		for i := start; i < end; i++ {
 			lsb.WriteString(lines[i])
-			lsb.WriteString("\n")
+			if i < end-1 {
+				lsb.WriteString("\n")
+			}
 		}
 		for i := end - start; i < vh; i++ {
 			lsb.WriteString("\n")
 		}
 
 		leftPane := lipgloss.NewStyle().Width(listWidth).Render(lsb.String())
-		rightPane := renderFilterPane(m.filter, filterWidth, vh, "")
+		filterInnerH := vh - 2
+		if filterInnerH < 3 {
+			filterInnerH = 3
+		}
+		rightPane := renderFilterPanel(m.filter, filterWidth, filterInnerH)
 		sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
-		sb.WriteString("\n")
+		sb.WriteString("\n\n")
 	} else {
 		// Single-column: full-width scrollable content viewport.
 		for i := start; i < end; i++ {
@@ -581,6 +591,12 @@ func (m DetailModel) buildLines() []string {
 }
 
 // buildRecipeBlock assembles the full styled recipe body as a single string.
+// contentIndent is the left indent applied to every content element in the
+// recipe detail body, matching the ingredient bullets and glamour's built-in
+// 2-space margin on directions. Section rules stay full width (structural
+// chrome, like the banner).
+const contentIndent = "  "
+
 func buildRecipeBlock(r *models.Recipe, width int) string {
 	var sb strings.Builder
 
@@ -588,7 +604,8 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	sb.WriteString(lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
-		Width(width).
+		Width(width - 2).
+		MarginLeft(2).
 		Render(r.Name))
 	sb.WriteString("\n")
 
@@ -605,28 +622,25 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		meta = append(meta, MutedStyle.Render(fmt.Sprintf("Serves %d %s", *r.Servings, units)))
 	}
 	if len(meta) > 0 {
+		sb.WriteString(contentIndent)
 		sb.WriteString(strings.Join(meta, MutedStyle.Render("  ·  ")))
 		sb.WriteString("\n")
 	}
 	if r.Rating != nil {
+		sb.WriteString(contentIndent)
 		sb.WriteString(MutedStyle.Render("Rating: "))
 		sb.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render(r.RatingGlyphs()))
 		sb.WriteString("\n")
 	}
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
-			hydLine := fmt.Sprintf("Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
-			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
-			if bm.StarterCount > 0 {
-				sb.WriteString(MutedStyle.Render("  (100% hydration starter assumed)"))
-			}
-			sb.WriteString("\n")
+			sb.WriteString(renderHydrationGauge(bm, width))
 		}
 	}
 
 	// Tag pills.
 	if tags := buildTagPills(r); tags != "" {
+		sb.WriteString(contentIndent)
 		sb.WriteString(tags)
 		sb.WriteString("\n")
 	}
@@ -638,14 +652,16 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString(lipgloss.NewStyle().
 			Italic(true).
 			Foreground(ColorSubtle).
-			Width(width).
+			Width(width - 2).
+			MarginLeft(2).
 			Render(r.Description))
 		sb.WriteString("\n\n")
 	}
 
 	// Ingredients.
 	if len(r.Ingredients) > 0 {
-		sb.WriteString(SectionLabelStyle.Render("Ingredients"))
+		sb.WriteString("\n")
+		sb.WriteString(sectionRule(width, "Ingredients"))
 		sb.WriteString("\n")
 		sb.WriteString(buildIngredientLines(r.Ingredients))
 		sb.WriteString("\n")
@@ -653,7 +669,8 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 
 	// Directions.
 	if r.Directions != "" {
-		sb.WriteString(SectionLabelStyle.Render("Directions"))
+		sb.WriteString("\n")
+		sb.WriteString(sectionRule(width, "Directions"))
 		sb.WriteString("\n")
 		sb.WriteString(renderMarkdown(r.Directions, width))
 	}
@@ -661,63 +678,124 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	// Source URL.
 	if r.SourceURL != "" {
 		sb.WriteString("\n")
+		sb.WriteString(contentIndent)
 		sb.WriteString(MutedStyle.Render("Source: " + r.SourceURL))
 		sb.WriteString("\n")
 	}
 
 	// Notes.
 	if r.Notes != "" {
-		sb.WriteString(SectionLabelStyle.Render("Notes"))
+		sb.WriteString("\n")
+		sb.WriteString(sectionRule(width, "Notes"))
 		sb.WriteString("\n")
 		sb.WriteString(lipgloss.NewStyle().
 			Foreground(ColorMuted).
-			Width(width).
+			Width(width - 2).
+			MarginLeft(2).
 			Render(r.Notes))
 		sb.WriteString("\n")
 	}
 
-	// Baker's percentages table — bread/dough recipes only.
+	// Baker's percentages chart — bread/dough recipes only.
 	if r.IsBread {
 		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil && len(bm.PerIngredient) > 0 {
 			sb.WriteString("\n")
-			sb.WriteString(SectionLabelStyle.Render("Baker's Percentages"))
+			sb.WriteString(sectionRule(width, "Baker's Percentages"))
 			sb.WriteString("\n")
-
-			// Compute name column width.
-			maxName := 0
-			for _, ing := range bm.PerIngredient {
-				n := len([]rune(ing.Name))
-				if ing.Type == "starter" {
-					n++
-				}
-				if n > maxName {
-					maxName = n
-				}
-			}
-
-			for _, ing := range bm.PerIngredient {
-				name := ing.Name
-				if ing.Type == "starter" {
-					name += "*"
-				}
-				grams := int(ing.WeightGrams + 0.5)
-				line := fmt.Sprintf("  %-*s  %5dg  %6.1f%%", maxName, name, grams, ing.Percentage)
-				sb.WriteString(MutedStyle.Render(line))
-				sb.WriteString("\n")
-			}
-
-			totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
-			hydLine := fmt.Sprintf("  Hydration: %.1f%%  ·  %dg total", bm.HydrationPct, totalG)
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(hydLine))
-			sb.WriteString("\n")
-			if bm.StarterCount > 0 {
-				sb.WriteString(MutedStyle.Render("  * 100% hydration starter assumed"))
-				sb.WriteString("\n")
-			}
+			sb.WriteString(renderBakerBars(bm, width))
 		}
 	}
 
+	return sb.String()
+}
+
+// renderHydrationGauge renders the headline hydration line for a bread
+// recipe: a colour-ramped gauge, the percentage, and total dough weight.
+//
+//	Hydration ███████████▉░░░░░░ 72.4%  ·  1864g dough
+func renderHydrationGauge(bm scaling.BreadMetricsResult, width int) string {
+	totalG := int(bm.TotalDryGrams + bm.TotalWetGrams + bm.TotalFatGrams + 0.5)
+	label := MutedStyle.Render("Hydration ")
+	pctStr := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).
+		Render(fmt.Sprintf(" %.1f%%", bm.HydrationPct))
+	doughStr := MutedStyle.Render(fmt.Sprintf("  ·  %dg dough", totalG))
+
+	gaugeW := width - len(contentIndent) - lipgloss.Width(label) - lipgloss.Width(pctStr) - lipgloss.Width(doughStr)
+	if gaugeW > 32 {
+		gaugeW = 32
+	}
+	if gaugeW < 8 {
+		gaugeW = 8
+	}
+
+	var sb strings.Builder
+	sb.WriteString(contentIndent)
+	sb.WriteString(label)
+	sb.WriteString(renderGauge(hydrationGaugeFrac(bm.HydrationPct), gaugeW))
+	sb.WriteString(pctStr)
+	sb.WriteString(doughStr)
+	sb.WriteString("\n")
+	if bm.StarterCount > 0 {
+		sb.WriteString(contentIndent)
+		sb.WriteString(MutedStyle.Render("(100% hydration starter assumed)"))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// renderBakerBars renders the baker's percentages as a horizontal bar chart,
+// one bar per ingredient, coloured by ingredient type:
+//
+//	bread flour   500g ████████████████████ 100.0%
+//	water         360g ██████████████▍       72.0%
+func renderBakerBars(bm scaling.BreadMetricsResult, width int) string {
+	var sb strings.Builder
+
+	// Column widths.
+	maxName := 0
+	maxPct := 100.0
+	for _, ing := range bm.PerIngredient {
+		n := len([]rune(ing.Name))
+		if ing.Type == "starter" {
+			n++
+		}
+		if n > maxName {
+			maxName = n
+		}
+		if ing.Percentage > maxPct {
+			maxPct = ing.Percentage
+		}
+	}
+	if maxName > 24 {
+		maxName = 24
+	}
+
+	// "  name  1234g " + bar + " 100.0%"
+	barW := width - maxName - 18
+	if barW > 30 {
+		barW = 30
+	}
+	if barW < 8 {
+		barW = 8
+	}
+
+	for _, ing := range bm.PerIngredient {
+		name := ing.Name
+		if ing.Type == "starter" {
+			name += "*"
+		}
+		name = truncate(name, maxName)
+		grams := int(ing.WeightGrams + 0.5)
+		sb.WriteString(MutedStyle.Render(fmt.Sprintf("  %-*s %5dg ", maxName, name, grams)))
+		sb.WriteString(renderBar(ing.Percentage/maxPct, barW, ingredientTypeColor(ing.Type)))
+		sb.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render(fmt.Sprintf(" %5.1f%%", ing.Percentage)))
+		sb.WriteString("\n")
+	}
+
+	if bm.StarterCount > 0 {
+		sb.WriteString(MutedStyle.Render("  * 100% hydration starter assumed"))
+		sb.WriteString("\n")
+	}
 	return sb.String()
 }
 
@@ -770,67 +848,45 @@ func renderMarkdown(text string, width int) string {
 	return out
 }
 
-// renderDetailBanner renders the banner with an "enplace / Recipe Name" breadcrumb.
-func renderDetailBanner(name string, isBread bool, width int) string {
-	hints := MutedStyle.Render("🔍 / search") + "   " + MutedStyle.Render("⚙ m manage") + "   " + MutedStyle.Render("🏠 h home") + "   " + MutedStyle.Render("🚪 q quit")
-	hintsWidth := lipgloss.Width(hints)
+// breadcrumbTitle builds the styled "🍳 enplace / trail" banner segment.
+func breadcrumbTitle(trail string) string {
+	app := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("🍳 enplace")
+	if trail == "" {
+		return app
+	}
+	return app + MutedStyle.Render(" / ") +
+		lipgloss.NewStyle().Foreground(ColorSubtle).Render(trail)
+}
 
-	maxNameLen := width - 26 - hintsWidth - 4
+// renderDetailBanner renders the one-line titled banner rule with an
+// "enplace / Recipe Name" breadcrumb.
+func renderDetailBanner(name string, isBread bool, width int) string {
+	maxNameLen := width - 30
 	if maxNameLen < 8 {
 		maxNameLen = 8
 	}
-
 	displayName := truncate(name, maxNameLen)
 	if isBread {
-		displayName += "  🍞"
+		displayName += " 🍞"
 	}
-
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render(displayName),
-		)
-
-	innerWidth := width - 6 // border(2) + padding(2+2)
-	gap := innerWidth - lipgloss.Width(breadcrumb) - hintsWidth
-	if gap < 1 {
-		gap = 1
-	}
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb + strings.Repeat(" ", gap) + hints)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle(displayName), "", ColorBorder, ColorPrimary)
 }
 
 // renderDetailFooter renders the key-hint footer for the recipe detail view.
 func renderDetailFooter(isFailed bool, width int) string {
 	keys := []string{
-		"📜 ↑/↓ scroll",
-		MutedStyle.Render("🏠 h home"),
-		MutedStyle.Render("✏️ e edit"),
-		MutedStyle.Render("⚖ s scale"),
-		MutedStyle.Render("💾 p export"),
-		MutedStyle.Render("➕ a add"),
-		MutedStyle.Render("🗑 d delete"),
+		keyHint("↑/↓", "scroll"),
+		keyHint("h", "home"),
+		keyHint("e", "edit"),
+		keyHint("s", "scale"),
+		keyHint("p", "export"),
+		keyHint("d", "delete"),
 	}
 	if isFailed {
-		keys = append(keys, MutedStyle.Render("🔄 r retry"))
+		keys = append(keys, keyHint("r", "retry"))
 	} else {
-		keys = append(keys, MutedStyle.Render("★ r rate"))
-		keys = append(keys, MutedStyle.Render("📝 N notes"))
+		keys = append(keys, keyHint("r", "rate"))
+		keys = append(keys, keyHint("N", "notes"))
 	}
 
 	return lipgloss.NewStyle().

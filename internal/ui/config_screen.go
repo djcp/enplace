@@ -431,37 +431,16 @@ func (m ConfigModel) View() string {
 }
 
 func renderConfigBanner(width int) string {
-	breadcrumb := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render(
-			"🍳  enplace  " +
-				MutedStyle.Render("/") +
-				"  " +
-				lipgloss.NewStyle().
-					Bold(false).
-					Foreground(ColorSubtle).
-					Render("configure"),
-		)
-
-	title := lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(breadcrumb)
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(ColorBorder).
-		Width(width - 2).
-		Render(title)
+	return flatRuleStyled(width, breadcrumbTitle("configure"), "", ColorBorder, ColorPrimary)
 }
 
 func renderConfigFooter(width int) string {
 	keys := []string{
-		MutedStyle.Render("tab next"),
-		MutedStyle.Render("shift+tab prev"),
-		MutedStyle.Render("◀/▶ change model"),
-		lipgloss.NewStyle().Bold(true).Foreground(ColorSecondary).Render("ctrl+s save"),
-		MutedStyle.Render("esc cancel"),
+		keyHint("tab", "next"),
+		keyHint("shift+tab", "prev"),
+		keyHint("◀/▶", "change model"),
+		lipgloss.NewStyle().Bold(true).Foreground(ColorSecondary).Render("ctrl+s") + " " + MutedStyle.Render("save"),
+		keyHint("esc", "cancel"),
 	}
 	return lipgloss.NewStyle().
 		Foreground(ColorMuted).
