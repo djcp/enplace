@@ -39,6 +39,8 @@ func init() {
 	Root.AddCommand(listCmd)
 	Root.AddCommand(showCmd)
 	Root.AddCommand(configCmd)
+	Root.AddCommand(exportCmd)
+	Root.AddCommand(updateCmd)
 
 	// PersistentPreRunE opens the database for all commands that need it.
 	// configCmd overrides this with a no-op so it works without a DB connection.

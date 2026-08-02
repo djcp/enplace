@@ -1,0 +1,98 @@
+# GoReleaser configuration — https://goreleaser.com
+# Requires GoReleaser v2 (>= 2.6 for the `archives.formats` list syntax).
+#
+# Triggered by CI on a pushed tag (see .github/workflows/release.yaml).
+# Cross-compiles the six supported targets, produces tar.gz/zip archives plus a
+# single sha256 `checksums.txt` (consumed by `enplace update`), and — for
+# non-prerelease tags — publishes a Homebrew formula and a Scoop manifest.
+version: 2
+
+project_name: enplace
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: enplace
+    main: .
+    binary: enplace
+    env:
+      - CGO_ENABLED=0 # pure-Go sqlite (modernc.org/sqlite) — static binaries
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - "386"
+    ignore:
+      - goos: linux
+        goarch: "386"
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/djcp/enplace/internal/version.Version={{ .Version }}
+
+archives:
+  - id: default
+    name_template: "enplace_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+release:
+  github:
+    owner: djcp
+    name: enplace
+  # Alpha/beta/rc tags (e.g. v1.4.0-alpha) are published as GitHub prereleases.
+  prerelease: auto
+
+homebrew_casks:
+  - name: enplace
+    repository:
+      owner: djcp
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/djcp/enplace"
+    description: "A CLI recipe manager powered by Claude AI"
+    # Don't push the cask for prerelease tags.
+    skip_upload: auto
+    commit_author:
+      name: goreleaser-bot
+      email: goreleaser-bot@users.noreply.github.com
+    # The binaries are unsigned; strip the macOS quarantine flag on install so
+    # Gatekeeper doesn't block the first run.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/enplace"]
+          end
+
+scoops:
+  - name: enplace
+    repository:
+      owner: djcp
+      name: scoop-bucket
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/djcp/enplace"
+    description: "A CLI recipe manager powered by Claude AI"
+    license: "MIT"
+    # Don't push the manifest for prerelease tags.
+    skip_upload: auto
+    commit_author:
+      name: goreleaser-bot
+      email: goreleaser-bot@users.noreply.github.com

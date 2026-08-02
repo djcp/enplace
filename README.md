@@ -30,6 +30,72 @@ The UI adapts to your terminal's color scheme.
 - **Ratings and personal notes** — press `r` in the detail view to rate a recipe 1–5 stars using a selector menu; press `N` to open a freeform notes field. Ratings appear inline in the list view (★★★★☆) and a 📝 indicator appears when notes exist. The rating value is included in all export formats; notes are personal and never exported
 - **No external dependencies at runtime** — single static binary; SQLite is compiled in with no CGO requirement
 
+## Installation
+
+enplace ships as a single static binary for Linux, macOS, and Windows. Pick whichever install method fits your platform:
+
+### Homebrew (macOS & Linux)
+
+```sh
+brew install djcp/tap/enplace
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add djcp https://github.com/djcp/scoop-bucket
+scoop install enplace
+```
+
+### Install script (Linux & macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/djcp/enplace/main/install.sh | sh
+```
+
+Downloads the correct release archive from GitHub, verifies its sha256 checksum, and installs `enplace` to `~/.local/bin`. Override the target with `INSTALL_DIR=/usr/local/bin`, or pin a version with `ENPLACE_VERSION=v1.4.0-alpha`.
+
+### Install script (Windows, PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/djcp/enplace/main/install.ps1 | iex
+```
+
+Installs `enplace.exe` to `%LOCALAPPDATA%\Programs\enplace` and adds it to your user `PATH`.
+
+### From source
+
+Requires Go 1.21+ (no C compiler needed):
+
+```sh
+go install github.com/djcp/enplace@latest
+```
+
+### Updating
+
+```sh
+enplace update            # download & install the latest release
+enplace update --check    # report whether a newer version exists
+```
+
+If enplace was installed with Homebrew or Scoop, `enplace update` detects this and tells you to run `brew upgrade enplace` / `scoop update enplace` instead of replacing the package-managed binary.
+
+### Uninstalling
+
+Save your recipes first if you want to keep them:
+
+```sh
+enplace export            # writes ~/enplace_recipe_backup_<date>.json by default
+```
+
+Then remove enplace the same way you installed it:
+
+- **Homebrew:** `brew uninstall enplace`
+- **Scoop:** `scoop uninstall enplace`
+- **Install script / source:** delete the `enplace` binary from your install directory
+
+To also remove your recipes, config, and logs, delete the data directories by hand: `~/.config/enplace` and `~/.local/share/enplace` (a PostgreSQL database, if configured, is left untouched).
+
 ## Commands
 
 ```
@@ -42,6 +108,8 @@ enplace list                     Open the interactive recipe browser
 enplace list --query foo         Non-interactive filtered list (also when stdout is not a TTY)
 enplace show <id>                Display a recipe by ID
 enplace config                   View or update configuration (API key, model)
+enplace export                   Export all recipes to one JSON or text file
+enplace update                   Update enplace to the latest release
 ```
 
 ### add
@@ -236,11 +304,7 @@ cd enplace
 go build -o enplace .
 ```
 
-Install to your PATH:
-
-```sh
-go install .
-```
+See [Installation](#installation) for user-facing install methods (Homebrew, Scoop, install scripts, `go install`).
 
 ## Running tests
 
