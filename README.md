@@ -62,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/djcp/enplace/main/install.sh | sh
 The script detects your OS (`uname -s`) and architecture (`uname -m`), resolves the latest release tag via the GitHub API, downloads the matching `.tar.gz`, verifies its SHA-256 against `checksums.txt`, and installs `enplace` to `~/.local/bin`. Environment overrides:
 
 - `INSTALL_DIR=/usr/local/bin` — install somewhere else (e.g. a system-wide, already-on-`PATH` directory).
-- `ENPLACE_VERSION=v1.5.0-alpha` — pin a specific release instead of the latest.
+- `ENPLACE_VERSION=v1.5.0` — pin a specific release instead of the latest.
 
 If the target directory isn't on your `PATH`, the script prints the line to add to your shell profile.
 

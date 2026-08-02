@@ -58,7 +58,7 @@ if [ -n "${ENPLACE_VERSION:-}" ]; then
 	tag="$ENPLACE_VERSION"
 else
 	# Prefer the latest stable release; fall back to the newest release of any
-	# kind (this project currently ships prerelease/alpha tags).
+	# kind (covers the case where only prereleases exist).
 	tag=$($DL "$api/latest" 2>/dev/null | grep -m1 '"tag_name":' | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/' || true)
 	if [ -z "$tag" ]; then
 		tag=$($DL "$api?per_page=1" 2>/dev/null | grep -m1 '"tag_name":' | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/' || true)

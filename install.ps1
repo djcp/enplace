@@ -32,7 +32,7 @@ if ($env:ENPLACE_VERSION) {
 }
 else {
     # Prefer the latest stable release; fall back to the newest release of any
-    # kind (this project currently ships prerelease/alpha tags).
+    # kind (covers the case where only prereleases exist).
     try {
         $tag = (Invoke-RestMethod -Uri "$api/latest" -Headers $headers).tag_name
     }
