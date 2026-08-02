@@ -28,7 +28,12 @@ func Detect(execPath string) Method {
 	// host OS running the detection (filepath.ToSlash is a no-op off Windows).
 	p := strings.ReplaceAll(strings.ToLower(execPath), "\\", "/")
 	switch {
-	case strings.Contains(p, "/cellar/"),
+	// Homebrew: casks stage under Caskroom, formulae under Cellar. On Apple
+	// Silicon / Linuxbrew the prefix itself contains "homebrew"/"linuxbrew",
+	// but on Intel macOS the prefix is /usr/local, so Caskroom/Cellar are the
+	// only reliable markers there.
+	case strings.Contains(p, "/caskroom/"),
+		strings.Contains(p, "/cellar/"),
 		strings.Contains(p, "/homebrew/"),
 		strings.Contains(p, "/linuxbrew/"):
 		return MethodHomebrew

@@ -32,13 +32,17 @@ The UI adapts to your terminal's color scheme.
 
 ## Installation
 
-enplace ships as a single static binary for Linux, macOS, and Windows. Pick whichever install method fits your platform:
+enplace ships as a single, statically-linked binary — no runtime dependencies, no C compiler, no separate SQLite install. Every method below (except `go install`) fetches the same prebuilt binary from a [GitHub release](https://github.com/djcp/enplace/releases): the release archives are cross-compiled by [GoReleaser](https://goreleaser.com) and published alongside a `checksums.txt`, and each installer downloads the archive matching your OS/architecture, **verifies its SHA-256 against `checksums.txt`**, and unpacks the binary onto your `PATH`.
+
+Pick whichever method fits your platform. Where each one puts the binary — and where your recipes and config live — is summarized in [Where things are stored](#where-things-are-stored).
 
 ### Homebrew (macOS & Linux)
 
 ```sh
 brew install djcp/tap/enplace
 ```
+
+Installs from the [`djcp/homebrew-tap`](https://github.com/djcp/homebrew-tap) tap as a Homebrew **cask**. Homebrew downloads the release archive, verifies its checksum, stages it under the Caskroom, and symlinks `enplace` into your Homebrew `bin`. Upgrade with `brew upgrade enplace`.
 
 ### Scoop (Windows)
 
@@ -47,13 +51,20 @@ scoop bucket add djcp https://github.com/djcp/scoop-bucket
 scoop install enplace
 ```
 
+Installs from the [`djcp/scoop-bucket`](https://github.com/djcp/scoop-bucket) bucket. Scoop downloads and checksum-verifies the release zip, unpacks it under `~/scoop/apps/enplace`, and adds a shim to `~/scoop/shims` (already on your `PATH`). Upgrade with `scoop update enplace`.
+
 ### Install script (Linux & macOS)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/djcp/enplace/main/install.sh | sh
 ```
 
-Downloads the correct release archive from GitHub, verifies its sha256 checksum, and installs `enplace` to `~/.local/bin`. Override the target with `INSTALL_DIR=/usr/local/bin`, or pin a version with `ENPLACE_VERSION=v1.4.0-alpha`.
+The script detects your OS (`uname -s`) and architecture (`uname -m`), resolves the latest release tag via the GitHub API, downloads the matching `.tar.gz`, verifies its SHA-256 against `checksums.txt`, and installs `enplace` to `~/.local/bin`. Environment overrides:
+
+- `INSTALL_DIR=/usr/local/bin` — install somewhere else (e.g. a system-wide, already-on-`PATH` directory).
+- `ENPLACE_VERSION=v1.5.0-alpha` — pin a specific release instead of the latest.
+
+If the target directory isn't on your `PATH`, the script prints the line to add to your shell profile.
 
 ### Install script (Windows, PowerShell)
 
@@ -61,15 +72,37 @@ Downloads the correct release archive from GitHub, verifies its sha256 checksum,
 irm https://raw.githubusercontent.com/djcp/enplace/main/install.ps1 | iex
 ```
 
-Installs `enplace.exe` to `%LOCALAPPDATA%\Programs\enplace` and adds it to your user `PATH`.
+Detects your architecture, resolves the latest release, downloads and checksum-verifies the matching `.zip`, unpacks `enplace.exe` to `%LOCALAPPDATA%\Programs\enplace`, and adds that directory to your **user** `PATH` (restart your shell to pick it up). Override with `$env:INSTALL_DIR` and `$env:ENPLACE_VERSION`.
 
 ### From source
 
-Requires Go 1.21+ (no C compiler needed):
+Requires Go 1.21+ (no C compiler needed). Unlike the other methods this compiles locally rather than downloading a release binary, and installs to your Go bin directory (`$GOBIN`, or `$GOPATH/bin` — typically `~/go/bin`):
 
 ```sh
 go install github.com/djcp/enplace@latest
 ```
+
+### Where things are stored
+
+**The binary** — location depends on how you installed it:
+
+| Install method | Binary location |
+|---|---|
+| Homebrew (Apple Silicon) | `/opt/homebrew/bin/enplace` → `…/Caskroom/enplace/<version>/enplace` |
+| Homebrew (Intel macOS) | `/usr/local/bin/enplace` → `…/Caskroom/enplace/<version>/enplace` |
+| Scoop | `~/scoop/shims/enplace.exe` → `~/scoop/apps/enplace/current/enplace.exe` |
+| Install script (Unix) | `~/.local/bin/enplace` (or `$INSTALL_DIR`) |
+| Install script (Windows) | `%LOCALAPPDATA%\Programs\enplace\enplace.exe` (or `$env:INSTALL_DIR`) |
+| `go install` | `$GOBIN` or `$GOPATH/bin` (usually `~/go/bin/enplace`) |
+
+**Your data** — the same regardless of install method. enplace follows the [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/) spec:
+
+| What | Path (Linux/macOS) | Path (Windows) |
+|---|---|---|
+| Config (`config.json`) | `~/.config/enplace/` | `%USERPROFILE%\.config\enplace\` |
+| Database (`recipes.db`) + log (`enplace.log`) | `~/.local/share/enplace/` | `%USERPROFILE%\.local\share\enplace\` |
+
+Set `XDG_CONFIG_HOME` / `XDG_DATA_HOME` to relocate these. Uninstalling the binary never touches this data — see [Uninstalling](#uninstalling). (If you've configured a PostgreSQL backend, your recipes live in that database instead of `recipes.db`.)
 
 ### Updating
 
@@ -92,9 +125,9 @@ Then remove enplace the same way you installed it:
 
 - **Homebrew:** `brew uninstall enplace`
 - **Scoop:** `scoop uninstall enplace`
-- **Install script / source:** delete the `enplace` binary from your install directory
+- **Install script / source:** delete the `enplace` binary from its [install location](#where-things-are-stored)
 
-To also remove your recipes, config, and logs, delete the data directories by hand: `~/.config/enplace` and `~/.local/share/enplace` (a PostgreSQL database, if configured, is left untouched).
+Removing the binary never deletes your recipes, config, or logs. To remove those too, delete the two data directories by hand (`~/.config/enplace` and `~/.local/share/enplace`, or their `%USERPROFILE%\…` equivalents on Windows — see [Where things are stored](#where-things-are-stored)). A PostgreSQL database, if configured, is left untouched.
 
 ## Commands
 

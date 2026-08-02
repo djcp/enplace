@@ -15,6 +15,8 @@ func TestDetect(t *testing.T) {
 		{"homebrew arm cellar", "/opt/homebrew/Cellar/enplace/1.4.0/bin/enplace", selfmanage.MethodHomebrew},
 		{"homebrew arm shim", "/opt/homebrew/bin/enplace", selfmanage.MethodHomebrew},
 		{"homebrew intel cellar", "/usr/local/Cellar/enplace/1.4.0/bin/enplace", selfmanage.MethodHomebrew},
+		{"homebrew arm caskroom", "/opt/homebrew/Caskroom/enplace/1.4.0/enplace", selfmanage.MethodHomebrew},
+		{"homebrew intel caskroom", "/usr/local/Caskroom/enplace/1.4.0/enplace", selfmanage.MethodHomebrew},
 		{"linuxbrew", "/home/linuxbrew/.linuxbrew/bin/enplace", selfmanage.MethodHomebrew},
 		{"scoop app", `C:\Users\dan\scoop\apps\enplace\current\enplace.exe`, selfmanage.MethodScoop},
 		{"scoop shim", `C:\Users\dan\scoop\shims\enplace.exe`, selfmanage.MethodScoop},
