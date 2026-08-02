@@ -12,24 +12,6 @@ The UI adapts to your terminal's color scheme.
 | ![Recipe list — dark](screenshots/dark-list.svg) | ![Recipe detail — dark](screenshots/dark-detail.svg) |
 | ![Recipe list — light](screenshots/light-list.svg) | ![Recipe detail — light](screenshots/light-detail.svg) |
 
-## Features
-
-- **Add by URL** — fetch any recipe page; schema.org JSON-LD is parsed first with an HTML fallback
-- **Add by paste** — pipe or interactively paste raw recipe text
-- **Add manually** — fill in a full-screen form with autocomplete for ingredients, units, and tags
-- **AI extraction** — Claude parses free-form text into a structured recipe: named ingredients with quantity, unit, descriptor, and section; numbered directions; prep/cook time; servings; and four classification tag contexts (courses, cooking methods, cultural influences, dietary restrictions). The AI also classifies each ingredient as `flour`, `dry`, `wet`, `fat`, or `starter`, and marks bread and dough recipes with an `is_bread` flag
-- **Bread/dough hydration and baker's percentages** — recipes marked as bread or dough automatically show hydration percentage and a full baker's percentages table. Hydration = total wet ÷ total dry × 100, where "dry" includes flour, salt, yeast, seeds, and all other non-fat solids. Baker's percentages use total flour weight as the 100% base (the standard baker's math definition), so every other ingredient is expressed relative to flour. Saturated fats (butter, lard, etc.) appear in the baker's percentages table but are excluded from the hydration ratio. Sourdough starters and levains are split 50/50 between wet and dry (assuming a 100% hydration starter). These figures appear in the detail view, the scale view, and all export formats (PDF, RTF, Markdown, plain text)
-- **Edit recipes** — open a pre-populated form from the list or detail view with `e`; supports the same autocomplete as manual entry
-- **Print preview & export** — `p` in the detail view opens a full-screen preview with options to save as PDF, RTF, Markdown, or plain text to `~/Downloads/`, or send directly to the system printer via CUPS (`lp`/`lpr`); duplicate filenames are deduplicated automatically with a `-2`, `-3`, … suffix
-- **Interactive browser** — full-screen recipe list with live `/` search and keyboard navigation
-- **Styled output** — ingredient tables, markdown-rendered directions, tag pills, and timing summaries in the terminal
-- **Data management** — `m` from the list or detail view opens a manage screen for cleaning up tags (rename, merge, delete by context), ingredients (rename, merge), and serving units (rename, merge); also browses AI run history with individual delete and bulk prune of runs older than 30 days
-- **Quiet/scripted mode** — `add --quiet <url>` runs the pipeline silently and exits non-zero with an error on stderr on failure
-- **Onboarding** — prompts for an Anthropic API key on first run and stores it at `~/.config/enplace/config.json`
-- **Audit trail** — every AI call is recorded with its prompt, raw response, duration, and success/failure status; browsable and manageable via the manage screen
-- **Ratings and personal notes** — press `r` in the detail view to rate a recipe 1–5 stars using a selector menu; press `N` to open a freeform notes field. Ratings appear inline in the list view (★★★★☆) and a 📝 indicator appears when notes exist. The rating value is included in all export formats; notes are personal and never exported
-- **No external dependencies at runtime** — single static binary; SQLite is compiled in with no CGO requirement
-
 ## Installation
 
 enplace ships as a single, statically-linked binary — no runtime dependencies, no C compiler, no separate SQLite install. Every method below (except `go install`) fetches the same prebuilt binary from a [GitHub release](https://github.com/djcp/enplace/releases): the release archives are cross-compiled by [GoReleaser](https://goreleaser.com) and published alongside a `checksums.txt`, and each installer downloads the archive matching your OS/architecture, **verifies its SHA-256 against `checksums.txt`**, and unpacks the binary onto your `PATH`.
@@ -128,6 +110,24 @@ Then remove enplace the same way you installed it:
 - **Install script / source:** delete the `enplace` binary from its [install location](#where-things-are-stored)
 
 Removing the binary never deletes your recipes, config, or logs. To remove those too, delete the two data directories by hand (`~/.config/enplace` and `~/.local/share/enplace`, or their `%USERPROFILE%\…` equivalents on Windows — see [Where things are stored](#where-things-are-stored)). A PostgreSQL database, if configured, is left untouched.
+
+## Features
+
+- **Add by URL** — fetch any recipe page; schema.org JSON-LD is parsed first with an HTML fallback
+- **Add by paste** — pipe or interactively paste raw recipe text
+- **Add manually** — fill in a full-screen form with autocomplete for ingredients, units, and tags
+- **AI extraction** — Claude parses free-form text into a structured recipe: named ingredients with quantity, unit, descriptor, and section; numbered directions; prep/cook time; servings; and four classification tag contexts (courses, cooking methods, cultural influences, dietary restrictions). The AI also classifies each ingredient as `flour`, `dry`, `wet`, `fat`, or `starter`, and marks bread and dough recipes with an `is_bread` flag
+- **Bread/dough hydration and baker's percentages** — recipes marked as bread or dough automatically show hydration percentage and a full baker's percentages table. Hydration = total wet ÷ total dry × 100, where "dry" includes flour, salt, yeast, seeds, and all other non-fat solids. Baker's percentages use total flour weight as the 100% base (the standard baker's math definition), so every other ingredient is expressed relative to flour. Saturated fats (butter, lard, etc.) appear in the baker's percentages table but are excluded from the hydration ratio. Sourdough starters and levains are split 50/50 between wet and dry (assuming a 100% hydration starter). These figures appear in the detail view, the scale view, and all export formats (PDF, RTF, Markdown, plain text)
+- **Edit recipes** — open a pre-populated form from the list or detail view with `e`; supports the same autocomplete as manual entry
+- **Print preview & export** — `p` in the detail view opens a full-screen preview with options to save as PDF, RTF, Markdown, or plain text to `~/Downloads/`, or send directly to the system printer via CUPS (`lp`/`lpr`); duplicate filenames are deduplicated automatically with a `-2`, `-3`, … suffix
+- **Interactive browser** — full-screen recipe list with live `/` search and keyboard navigation
+- **Styled output** — ingredient tables, markdown-rendered directions, tag pills, and timing summaries in the terminal
+- **Data management** — `m` from the list or detail view opens a manage screen for cleaning up tags (rename, merge, delete by context), ingredients (rename, merge), and serving units (rename, merge); also browses AI run history with individual delete and bulk prune of runs older than 30 days
+- **Quiet/scripted mode** — `add --quiet <url>` runs the pipeline silently and exits non-zero with an error on stderr on failure
+- **Onboarding** — prompts for an Anthropic API key on first run and stores it at `~/.config/enplace/config.json`
+- **Audit trail** — every AI call is recorded with its prompt, raw response, duration, and success/failure status; browsable and manageable via the manage screen
+- **Ratings and personal notes** — press `r` in the detail view to rate a recipe 1–5 stars using a selector menu; press `N` to open a freeform notes field. Ratings appear inline in the list view (★★★★☆) and a 📝 indicator appears when notes exist. The rating value is included in all export formats; notes are personal and never exported
+- **No external dependencies at runtime** — single static binary; SQLite is compiled in with no CGO requirement
 
 ## Commands
 
