@@ -1,35 +1,42 @@
 # .github/workflows/release.yaml
+#
+# Runs GoReleaser on a pushed version tag. GoReleaser creates the GitHub
+# release, cross-compiles all six targets, uploads the archives + checksums.txt,
+# and (for non-prerelease tags) publishes the Homebrew formula and Scoop manifest.
+#
+# Release flow: bump internal/version/version.go, commit, then:
+#   git tag v1.2.3 && git push origin v1.2.3
+name: release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - "v*"
 
 permissions:
-    contents: write
-    packages: write
+  contents: write
 
 jobs:
-  releases-matrix:
-    name: Release Go Binary
+  goreleaser:
+    name: Release
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # build and publish in parallel: linux/386, linux/amd64, linux/arm64, windows/386, windows/amd64, darwin/amd64, darwin/arm64
-        goos: [linux, windows, darwin]
-        goarch: ["386", amd64, arm64]
-        exclude:
-          - goarch: "386"
-            goos: linux
-          - goarch: "386"
-            goos: darwin
-          - goarch: arm64
-            goos: windows
     steps:
-    - uses: actions/checkout@v4
-    - uses: wangyoucao577/go-release-action@v1
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: ${{ matrix.goos }}
-        goarch: ${{ matrix.goarch }}
-        goversion: 1.26.0
-        extra_files: LICENSE README.md
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # GoReleaser needs full history + tags for changelogs
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.0"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          # Publishes the GitHub release on djcp/enplace.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-repo push to djcp/homebrew-tap and djcp/scoop-bucket.
+          # Create a classic PAT with `repo` scope and add it as this secret.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

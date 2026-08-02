@@ -30,28 +30,28 @@ var AllTagContexts = []string{
 
 // Recipe is the core domain model.
 type Recipe struct {
-	ID              int64     `db:"id"`
-	Name            string    `db:"name"`
-	Description     string    `db:"description"`
-	Directions      string    `db:"directions"`
-	PreparationTime *int      `db:"preparation_time"`
-	CookingTime     *int      `db:"cooking_time"`
-	Servings        *int      `db:"servings"`
-	ServingUnits    string    `db:"serving_units"`
-	SourceURL       string    `db:"source_url"`
-	SourceText      string    `db:"source_text"`
-	Status          string    `db:"status"`
-	CreatedAt       time.Time `db:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at"`
+	ID              int64     `db:"id" json:"id"`
+	Name            string    `db:"name" json:"name"`
+	Description     string    `db:"description" json:"description"`
+	Directions      string    `db:"directions" json:"directions"`
+	PreparationTime *int      `db:"preparation_time" json:"preparation_time"`
+	CookingTime     *int      `db:"cooking_time" json:"cooking_time"`
+	Servings        *int      `db:"servings" json:"servings"`
+	ServingUnits    string    `db:"serving_units" json:"serving_units"`
+	SourceURL       string    `db:"source_url" json:"source_url"`
+	SourceText      string    `db:"source_text" json:"source_text"`
+	Status          string    `db:"status" json:"status"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 
-	IsBread bool `db:"is_bread"`
+	IsBread bool `db:"is_bread" json:"is_bread"`
 
-	Rating *int   `db:"rating"` // 1–5, nullable
-	Notes  string `db:"notes"`
+	Rating *int   `db:"rating" json:"rating"` // 1–5, nullable
+	Notes  string `db:"notes" json:"notes"`
 
 	// Populated on load when needed.
-	Ingredients []RecipeIngredient `db:"-"`
-	Tags        []Tag              `db:"-"`
+	Ingredients []RecipeIngredient `db:"-" json:"ingredients"`
+	Tags        []Tag              `db:"-" json:"tags"`
 }
 
 var ratingGlyphs = [6]string{"", "★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★"}

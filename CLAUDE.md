@@ -19,7 +19,7 @@ Requires `tmux`, `asciinema`, and `termtosvg` — the script will tell you what'
 
 ## Creating a release
 
-Cross-compilation and asset uploading are handled automatically by `.github/workflows/release.yaml` (using `wangyoucao577/go-release-action`) when a GitHub release is created. There is nothing to build locally.
+Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask and Scoop manifest. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
 
 ### Pre-flight
 
@@ -31,7 +31,7 @@ gofmt -l .      # fix any listed files with gofmt -w <file>
 
 ### Steps
 
-1. **Bump the version** in `internal/version/version.go` to match the release tag, commit, and push:
+1. **Bump the version** in `internal/version/version.go` to match the release tag, commit, and push (do this on the feature branch before merging):
 
 ```sh
 # edit Version = "1.0.x-alpha" in internal/version/version.go
@@ -40,22 +40,32 @@ git commit -m "Bump version to 1.0.x-alpha"
 git push
 ```
 
-2. **Tag and push** the tag:
+2. **Tag and push** the tag — this is the trigger:
 
 ```sh
 git tag v1.0.x-alpha
 git push origin v1.0.x-alpha
 ```
 
-3. **Create the GitHub release** — this triggers CI to build and attach binaries:
+That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64), creates the GitHub release, and attaches the archives + `checksums.txt`.
 
-```sh
-gh release create v1.0.x-alpha \
-  --title "v1.0.x-alpha - <short description>" \
-  --notes "<release notes>"
-```
+The version string embedded in released binaries comes from GoReleaser's ldflags injection (`-X …/internal/version.Version={{.Version}}`), so it always matches the tag. The hardcoded default in `version.go` is only the fallback for `go install` / `go build` dev builds. `enplace update` relies on the released binary reporting the true version.
 
-That's it. GitHub Actions will cross-compile for all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64) and attach the archives and MD5 checksums to the release automatically.
+**Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop.
+
+## Distribution
+
+- **`.goreleaser.yaml`** — the single source of truth for release artifacts. Six build targets, `CGO_ENABLED=0` (pure-Go sqlite → static binaries), archive name template `enplace_{{.Version}}_{{.Os}}_{{.Arch}}` (`.tar.gz` on unix, `.zip` on windows), sha256 `checksums.txt`. `homebrew_casks` and `scoops` publish to the external repos below. Validate locally with `goreleaser check` and dry-run with `goreleaser release --snapshot --clean`.
+- **Install scripts** — `install.sh` (POSIX, `curl | sh`) and `install.ps1` (PowerShell, `irm | iex`) live in the repo root and are served raw from GitHub. Each detects OS/arch, resolves the latest release tag via the GitHub API (falling back to the newest release of any kind when `/releases/latest` 404s, e.g. if only prereleases exist), downloads the matching archive, verifies its sha256 against `checksums.txt`, and installs the binary. They expect **GoReleaser** asset naming — they will not work against the old `go-release-action` releases.
+- **External repos (manual, one-time prerequisites):** `djcp/homebrew-tap` and `djcp/scoop-bucket` must exist, and a classic PAT with `repo` scope must be added as the `HOMEBREW_TAP_GITHUB_TOKEN` secret on `djcp/enplace` so GoReleaser can push the cask/manifest cross-repo.
+
+### `enplace update` (`cmd/update.go`)
+
+Self-update via `github.com/creativeprojects/go-selfupdate`, configured with a `ChecksumValidator{UniqueFilename: "checksums.txt"}` so downloads are sha256-verified against the GoReleaser checksums file. Because the validator resolves that asset during detection, `update` only works against GoReleaser releases (old `go-release-action` releases lack `checksums.txt` and will error). Before replacing the binary it resolves the real path through symlinks and calls `selfmanage.Detect` (`internal/selfmanage/detect.go`) — if a package manager owns the binary (Homebrew `Caskroom`/`Cellar`/`homebrew`/`linuxbrew` or Scoop path — note the Homebrew integration ships as a **cask**, so the binary stages under Caskroom, and on Intel macOS `Caskroom` is the only marker in the path), it prints `brew upgrade` / `scoop update` instead of clobbering the managed file. Like `configCmd`, it overrides `PersistentPreRunE` to a no-op so it runs without a DB.
+
+### `enplace export` (`cmd/export.go`, `internal/export/archive.go`)
+
+Bulk-exports every recipe to one file. `export.WriteArchive(w, recipes, format)` takes **already-hydrated** `[]*models.Recipe` (keeping the export package free of a `db` dependency) and writes either a versioned JSON envelope (`export.Archive`, `schema` 1 — the models carry `json:` tags for a stable, future-importable shape) or concatenated `ToText`. `cmd/export.go` does the DB fetch (`ListRecipes` → `GetRecipe` per id for full ingredients+tags), resolves the output path (from `--out`, else a `huh` prompt pre-filled with `~/enplace_recipe_backup_<date>.<ext>`, else the default silently in a non-TTY), and dedups via `export.UniqueFilePath`.
 
 ## Database layer
 
