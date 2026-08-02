@@ -46,6 +46,14 @@ The script detects your OS (`uname -s`) and architecture (`uname -m`), resolves 
 - `INSTALL_DIR=/usr/local/bin` — install somewhere else (e.g. a system-wide, already-on-`PATH` directory).
 - `ENPLACE_VERSION=v1.5.0` — pin a specific release instead of the latest.
 
+To use them, set the variables on the **`sh`** side of the pipe (not before `curl`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/djcp/enplace/main/install.sh | INSTALL_DIR=/usr/local/bin ENPLACE_VERSION=v1.5.0 sh
+```
+
+This pins `v1.5.0` and installs to `/usr/local/bin` instead of the default (latest release into `~/.local/bin`).
+
 If the target directory isn't on your `PATH`, the script prints the line to add to your shell profile.
 
 ### Install script (Windows, PowerShell)
