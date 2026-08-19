@@ -47,11 +47,11 @@ git tag v1.0.x-alpha
 git push origin v1.0.x-alpha
 ```
 
-That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64), creates the GitHub release, and attaches the archives + `checksums.txt`.
+That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64), creates the GitHub release, and attaches the archives + `checksums.txt` + `.deb` packages.
 
 The version string embedded in released binaries comes from GoReleaser's ldflags injection (`-X …/internal/version.Version={{.Version}}`), so it always matches the tag. The hardcoded default in `version.go` is only the fallback for `go install` / `go build` dev builds. `enplace update` relies on the released binary reporting the true version.
 
-**Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop.
+**Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop/deb packages.
 
 ### Post-release cleanup
 
@@ -65,13 +65,14 @@ git push origin --delete <feature-branch>
 
 ## Distribution
 
-- **`.goreleaser.yaml`** — the single source of truth for release artifacts. Six build targets, `CGO_ENABLED=0` (pure-Go sqlite → static binaries), archive name template `enplace_{{.Version}}_{{.Os}}_{{.Arch}}` (`.tar.gz` on unix, `.zip` on windows), sha256 `checksums.txt`. `homebrew_casks` and `scoops` publish to the external repos below. Validate locally with `goreleaser check` and dry-run with `goreleaser release --snapshot --clean`.
+- **`.goreleaser.yaml`** — the single source of truth for release artifacts. Six build targets, `CGO_ENABLED=0` (pure-Go sqlite → static binaries), archive name template `enplace_{{.Version}}_{{.Os}}_{{.Arch}}` (`.tar.gz` on unix, `.zip` on windows), sha256 `checksums.txt`. `homebrew_casks`, `scoops`, and `nfpms` publish to their respective targets. Validate locally with `goreleaser check` and dry-run with `goreleaser release --snapshot --clean`.
+- **Debian packages** — `nfpms` builds `.deb` archives for amd64/arm64, installed to `/usr/bin` with zero runtime dependencies. Upgrade by downloading the latest `.deb` from the GitHub release page and running `sudo dpkg -i enplace_*.deb`.
 - **Install scripts** — `install.sh` (POSIX, `curl | sh`) and `install.ps1` (PowerShell, `irm | iex`) live in the repo root and are served raw from GitHub. Each detects OS/arch, resolves the latest release tag via the GitHub API (falling back to the newest release of any kind when `/releases/latest` 404s, e.g. if only prereleases exist), downloads the matching archive, verifies its sha256 against `checksums.txt`, and installs the binary. They expect **GoReleaser** asset naming — they will not work against the old `go-release-action` releases.
 - **External repos (manual, one-time prerequisites):** `djcp/homebrew-tap` and `djcp/scoop-bucket` must exist, and a classic PAT with `repo` scope must be added as the `HOMEBREW_TAP_GITHUB_TOKEN` secret on `djcp/enplace` so GoReleaser can push the cask/manifest cross-repo.
 
 ### `enplace update` (`cmd/update.go`)
 
-Self-update via `github.com/creativeprojects/go-selfupdate`, configured with a `ChecksumValidator{UniqueFilename: "checksums.txt"}` so downloads are sha256-verified against the GoReleaser checksums file. Because the validator resolves that asset during detection, `update` only works against GoReleaser releases (old `go-release-action` releases lack `checksums.txt` and will error). Before replacing the binary it resolves the real path through symlinks and calls `selfmanage.Detect` (`internal/selfmanage/detect.go`) — if a package manager owns the binary (Homebrew `Caskroom`/`Cellar`/`homebrew`/`linuxbrew` or Scoop path — note the Homebrew integration ships as a **cask**, so the binary stages under Caskroom, and on Intel macOS `Caskroom` is the only marker in the path), it prints `brew upgrade` / `scoop update` instead of clobbering the managed file. Like `configCmd`, it overrides `PersistentPreRunE` to a no-op so it runs without a DB.
+Self-update via `github.com/creativeprojects/go-selfupdate`, configured with a `ChecksumValidator{UniqueFilename: "checksums.txt"}` so downloads are sha256-verified against the GoReleaser checksums file. Because the validator resolves that asset during detection, `update` only works against GoReleaser releases (old `go-release-action` releases lack `checksums.txt` and will error). Before replacing the binary it resolves the real path through symlinks and calls `selfmanage.Detect` (`internal/selfmanage/detect.go`) — if a package manager owns the binary (Homebrew `Caskroom`/`Cellar`/`homebrew`/`linuxbrew`, Scoop path, or dpkg via `/var/lib/dpkg/info/enplace.list`), it prints the appropriate upgrade command instead of clobbering the managed file. Like `configCmd`, it overrides `PersistentPreRunE` to a no-op so it runs without a DB.
 
 ### `enplace export` (`cmd/export.go`, `internal/export/archive.go`)
 
@@ -102,8 +103,8 @@ The `execTx` helper in `manage_queries.go` uses raw `*sql.Tx` (obtained via `db.
 
 ### Migration directories
 
-- `internal/db/migrations/sqlite/` — 5 goose files for SQLite schema
-- `internal/db/migrations/postgres/` — 5 parallel goose files with PostgreSQL-compatible DDL (`BIGSERIAL`, `TIMESTAMPTZ`, `BOOLEAN`, partial unique index on `LOWER()`)
+- `internal/db/migrations/sqlite/` — 6 goose files for SQLite schema
+- `internal/db/migrations/postgres/` — 6 parallel goose files with PostgreSQL-compatible DDL (`BIGSERIAL`, `TIMESTAMPTZ`, `BOOLEAN`, partial unique index on `LOWER()`)
 
 Both directories are embedded via `//go:embed` in `db.go`. Goose's `goose_db_version` table is the schema_migrations equivalent — it is managed automatically.
 

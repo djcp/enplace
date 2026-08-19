@@ -4,6 +4,7 @@
 package selfmanage
 
 import (
+	"os"
 	"strings"
 )
 
@@ -18,6 +19,8 @@ const (
 	MethodHomebrew
 	// MethodScoop is a Scoop-managed install (Windows).
 	MethodScoop
+	// MethodDebian is a Debian/Ubuntu package install (dpkg).
+	MethodDebian
 )
 
 // Detect infers the install method from the executable's path. Callers should
@@ -39,7 +42,14 @@ func Detect(execPath string) Method {
 		return MethodHomebrew
 	case strings.Contains(p, "/scoop/"):
 		return MethodScoop
+	// Debian package: dpkg installs to /usr/bin or /usr/local/bin and drops a
+	// manifest at /var/lib/dpkg/info/<package>.list.
 	default:
+		if strings.Contains(p, "/usr/bin/") || strings.Contains(p, "/usr/local/bin/") {
+			if _, err := os.Stat("/var/lib/dpkg/info/enplace.list"); err == nil {
+				return MethodDebian
+			}
+		}
 		return MethodUnknown
 	}
 }
@@ -56,6 +66,8 @@ func (m Method) UpgradeCommand() string {
 		return "brew upgrade enplace"
 	case MethodScoop:
 		return "scoop update enplace"
+	case MethodDebian:
+		return "sudo dpkg -i enplace_*.deb  # grab the latest .deb from github.com/djcp/enplace/releases"
 	default:
 		return ""
 	}
@@ -68,6 +80,8 @@ func (m Method) String() string {
 		return "Homebrew"
 	case MethodScoop:
 		return "Scoop"
+	case MethodDebian:
+		return "Debian package"
 	default:
 		return "manual"
 	}

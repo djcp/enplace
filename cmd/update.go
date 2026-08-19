@@ -23,9 +23,9 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update enplace to the latest release",
 	Long: "Download and install the latest enplace release from GitHub.\n\n" +
-		"If enplace was installed with a package manager (Homebrew, Scoop), this\n" +
-		"command tells you the package-manager command to run instead of replacing\n" +
-		"the managed binary.",
+		"If enplace was installed with a package manager (Homebrew, Scoop, Debian\n" +
+		"package), this command tells you the package-manager command to run instead\n" +
+		"of replacing the managed binary.",
 	// No database needed — mirror configCmd so `update` works even when the DB
 	// or config is unavailable.
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return nil },

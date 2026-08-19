@@ -35,6 +35,16 @@ scoop install enplace
 
 Installs from the [`djcp/scoop-bucket`](https://github.com/djcp/scoop-bucket) bucket. Scoop downloads and checksum-verifies the release zip, unpacks it under `~/scoop/apps/enplace`, and adds a shim to `~/scoop/shims` (already on your `PATH`). Upgrade with `scoop update enplace`.
 
+### Debian / Ubuntu
+
+Download the `.deb` package from the [latest GitHub release](https://github.com/djcp/enplace/releases) for your architecture (`amd64` or `arm64`) and install it:
+
+```sh
+sudo dpkg -i enplace_*.deb
+```
+
+Works on Debian, Ubuntu, Linux Mint, Pop!_OS, and any other Debian-based distribution. The package installs to `/usr/bin` with zero runtime dependencies. Upgrade by downloading and installing the newer `.deb`.
+
 ### Install script (Linux & macOS)
 
 ```sh
@@ -80,6 +90,7 @@ go install github.com/djcp/enplace@latest
 |---|---|
 | Homebrew (Apple Silicon) | `/opt/homebrew/bin/enplace` → `…/Caskroom/enplace/<version>/enplace` |
 | Homebrew (Intel macOS) | `/usr/local/bin/enplace` → `…/Caskroom/enplace/<version>/enplace` |
+| Debian/Ubuntu (`.deb`) | `/usr/bin/enplace` |
 | Scoop | `~/scoop/shims/enplace.exe` → `~/scoop/apps/enplace/current/enplace.exe` |
 | Install script (Unix) | `~/.local/bin/enplace` (or `$INSTALL_DIR`) |
 | Install script (Windows) | `%LOCALAPPDATA%\Programs\enplace\enplace.exe` (or `$env:INSTALL_DIR`) |

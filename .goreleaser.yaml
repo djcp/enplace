@@ -96,3 +96,14 @@ scoops:
     commit_author:
       name: goreleaser-bot
       email: goreleaser-bot@users.noreply.github.com
+
+nfpms:
+  - package_name: enplace
+    vendor: Dan CMP
+    maintainer: dan@collispuro.net
+    homepage: https://github.com/djcp/enplace
+    description: AI-powered recipe manager
+    license: MIT
+    formats:
+      - deb
+    bindir: /usr/bin
