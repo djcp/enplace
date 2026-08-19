@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -198,8 +199,11 @@ func sectionRule(width int, label string) string {
 }
 
 // keyHint renders a footer key hint: the key in bold accent, the label muted.
+// The base key style is cached to avoid allocation per hint per render.
+var keyHintKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
+
 func keyHint(key, label string) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(key) +
+	return keyHintKeyStyle.Render(key) +
 		" " + MutedStyle.Render(label)
 }
 
@@ -241,6 +245,35 @@ func gaugeColor(t float64) lipgloss.Color {
 	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, bl))
 }
 
+// gaugeColorCache caches pre-computed lipgloss styles for each gauge cell
+// position, keyed by width and dark/light background. This avoids creating
+// a new style per cell on every render.
+var gaugeColorCache sync.Map // key: gaugeCacheKey → []lipgloss.Style
+
+type gaugeCacheKey struct {
+	width int
+	dark  bool
+}
+
+func cachedGaugeStyle(width int, idx int) lipgloss.Style {
+	dark := isDarkBG()
+	key := gaugeCacheKey{width: width, dark: dark}
+	if cached, ok := gaugeColorCache.Load(key); ok {
+		styles := cached.([]lipgloss.Style)
+		if idx < len(styles) {
+			return styles[idx]
+		}
+	}
+	// Compute and cache the full palette for this width.
+	styles := make([]lipgloss.Style, width)
+	for i := 0; i < width; i++ {
+		t := float64(i) / float64(width-1)
+		styles[i] = lipgloss.NewStyle().Foreground(gaugeColor(t))
+	}
+	gaugeColorCache.Store(key, styles)
+	return styles[idx]
+}
+
 // renderGauge renders a horizontal gradient gauge filled to frac ∈ [0,1] of
 // width cells. Filled cells are coloured by their absolute position along the
 // gauge (btop-style), the unfilled remainder is faint shade blocks.
@@ -258,21 +291,20 @@ func renderGauge(frac float64, width int) string {
 	full := int(cells)
 	rem := cells - float64(full)
 
+	faintStyle := lipgloss.NewStyle().Foreground(ColorFaint)
 	var sb strings.Builder
 	for i := 0; i < full; i++ {
-		t := float64(i) / float64(width-1)
-		sb.WriteString(lipgloss.NewStyle().Foreground(gaugeColor(t)).Render("█"))
+		sb.WriteString(cachedGaugeStyle(width, i).Render("█"))
 	}
 	used := full
 	if full < width {
 		if idx := int(rem * 8); idx > 0 {
-			t := float64(full) / float64(width-1)
-			sb.WriteString(lipgloss.NewStyle().Foreground(gaugeColor(t)).Render(eighthBlocks[idx-1]))
+			sb.WriteString(cachedGaugeStyle(width, full).Render(eighthBlocks[idx-1]))
 			used++
 		}
 	}
 	if used < width {
-		sb.WriteString(lipgloss.NewStyle().Foreground(ColorFaint).Render(strings.Repeat("░", width-used)))
+		sb.WriteString(faintStyle.Render(strings.Repeat("░", width-used)))
 	}
 	return sb.String()
 }

@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/djcp/enplace/internal/config"
 	"github.com/jmoiron/sqlx"
@@ -125,6 +127,8 @@ func openPostgres(dsn string, logger goose.Logger) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening postgres connection: %w", err)
 	}
+	raw.SetMaxIdleConns(2)
+	raw.SetConnMaxLifetime(5 * time.Minute)
 	if err := raw.Ping(); err != nil {
 		raw.Close()
 		return nil, fmt.Errorf("connecting to postgres: %w", err)
@@ -154,15 +158,17 @@ func OpenMemory() (*DB, error) {
 	return &DB{DB: raw, driver: "sqlite3"}, nil
 }
 
-// TestPostgresConnection attempts to open and ping a postgres connection.
-// Used for config-time validation. The connection is closed immediately.
+// TestPostgresConnection attempts to open and ping a postgres connection
+// with a 5-second timeout. Used for config-time validation.
 func TestPostgresConnection(dsn string) error {
 	db, err := sqlx.Open("postgres", dsn)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	return db.Ping()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return db.PingContext(ctx)
 }
 
 // SQLiteHasRecipes reports whether the SQLite DB at dbPath exists and

@@ -309,43 +309,96 @@ func AllUnits(db *DB) ([]string, error) {
 
 // SaveRecipe creates (r.ID==0) or updates (r.ID>0) a recipe with its tags and
 // ingredients. r.Ingredients[*].IngredientName must be set; IDs are ignored.
+// The entire operation runs in a transaction so partial failures are rolled back.
 func SaveRecipe(db *DB, r *models.Recipe, tagNames map[string][]string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op if committed
+
+	now := time.Now()
 	if r.ID == 0 {
-		id, err := CreateRecipe(db, r)
-		if err != nil {
-			return err
+		if db.Driver() == "postgres" {
+			var id int64
+			err := tx.QueryRow(db.Rebind(
+				`INSERT INTO recipes (name, description, directions, preparation_time, cooking_time,
+				  servings, serving_units, is_bread, source_url, source_text, status, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+				r.Name, r.Description, r.Directions, r.PreparationTime, r.CookingTime,
+				r.Servings, r.ServingUnits, r.IsBread, r.SourceURL, r.SourceText, r.Status, now, now,
+			).Scan(&id)
+			if err != nil {
+				return fmt.Errorf("create recipe: %w", err)
+			}
+			r.ID = id
+		} else {
+			res, err := tx.Exec(db.Rebind(
+				`INSERT INTO recipes (name, description, directions, preparation_time, cooking_time,
+				  servings, serving_units, is_bread, source_url, source_text, status, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+				r.Name, r.Description, r.Directions, r.PreparationTime, r.CookingTime,
+				r.Servings, r.ServingUnits, r.IsBread, r.SourceURL, r.SourceText, r.Status, now, now,
+			)
+			if err != nil {
+				return fmt.Errorf("create recipe: %w", err)
+			}
+			id, err := res.LastInsertId()
+			if err != nil {
+				return fmt.Errorf("create recipe id: %w", err)
+			}
+			r.ID = id
 		}
-		r.ID = id
 	} else {
-		if err := UpdateRecipeFields(db, r); err != nil {
-			return err
+		if _, err := tx.Exec(db.Rebind(
+			`UPDATE recipes
+			SET name = ?, description = ?, directions = ?,
+			    preparation_time = ?, cooking_time = ?,
+			    servings = ?, serving_units = ?,
+			    is_bread = ?,
+			    source_url = ?,
+			    status = ?, updated_at = ?
+			WHERE id = ?`),
+			r.Name, r.Description, r.Directions,
+			r.PreparationTime, r.CookingTime,
+			r.Servings, r.ServingUnits,
+			r.IsBread,
+			r.SourceURL,
+			r.Status, now, r.ID,
+		); err != nil {
+			return fmt.Errorf("update recipe: %w", err)
 		}
 	}
-	if err := DeleteRecipeTags(db, r.ID); err != nil {
-		return err
+
+	if _, err := tx.Exec(db.Rebind(`DELETE FROM recipe_tags WHERE recipe_id = ?`), r.ID); err != nil {
+		return fmt.Errorf("delete recipe tags: %w", err)
 	}
 	for ctx, names := range tagNames {
 		for _, name := range names {
 			if name == "" {
 				continue
 			}
-			tagID, err := FindOrCreateTag(db, name, ctx)
+			tagID, err := findOrCreateTagTx(tx, db, name, ctx)
 			if err != nil {
 				return err
 			}
-			if err := AttachTag(db, r.ID, tagID); err != nil {
-				return err
+			if _, err := tx.Exec(db.Rebind(db.onConflictDoNothing(
+				`INSERT INTO recipe_tags (recipe_id, tag_id) VALUES (?, ?)`)),
+				r.ID, tagID,
+			); err != nil {
+				return fmt.Errorf("attach tag: %w", err)
 			}
 		}
 	}
-	if err := DeleteRecipeIngredients(db, r.ID); err != nil {
-		return err
+
+	if _, err := tx.Exec(db.Rebind(`DELETE FROM recipe_ingredients WHERE recipe_id = ?`), r.ID); err != nil {
+		return fmt.Errorf("delete recipe ingredients: %w", err)
 	}
 	for pos, ing := range r.Ingredients {
 		if ing.IngredientName == "" {
 			continue
 		}
-		ingID, err := FindOrCreateIngredient(db, ing.IngredientName)
+		ingID, err := findOrCreateIngredientTx(tx, db, ing.IngredientName)
 		if err != nil {
 			return err
 		}
@@ -355,16 +408,66 @@ func SaveRecipe(db *DB, r *models.Recipe, tagNames map[string][]string) error {
 		if v, ok := scaling.ParseQuantity(ing.Quantity); ok {
 			ing.QuantityNumeric = &v
 		}
-		if err := InsertRecipeIngredient(db, &ing); err != nil {
-			return err
+		if _, err := tx.Exec(db.Rebind(
+			`INSERT INTO recipe_ingredients
+			  (recipe_id, ingredient_id, quantity, quantity_numeric, unit, unit_weight_g, descriptor, section, position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			ing.RecipeID, ing.IngredientID, ing.Quantity, ing.QuantityNumeric, ing.Unit, ing.UnitWeightG, ing.Descriptor, ing.Section, ing.Position,
+		); err != nil {
+			return fmt.Errorf("insert recipe ingredient: %w", err)
 		}
 		if ing.IngredientType != "" {
-			if err := SetIngredientType(db, ingID, ing.IngredientType); err != nil {
-				return err
+			if _, err := tx.Exec(db.Rebind(`UPDATE ingredients SET ingredient_type = ? WHERE id = ?`),
+				ing.IngredientType, ingID); err != nil {
+				return fmt.Errorf("set ingredient type: %w", err)
 			}
 		}
 	}
-	return nil
+	return tx.Commit()
+}
+
+// findOrCreateTagTx is the transactional variant of FindOrCreateTag.
+func findOrCreateTagTx(tx *sql.Tx, db *DB, name, context string) (int64, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var id int64
+	err := tx.QueryRow(db.Rebind(`SELECT id FROM tags WHERE name = ? AND context = ?`), name, context).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if db.Driver() == "postgres" {
+		err := tx.QueryRow(db.Rebind(
+			`INSERT INTO tags (name, context) VALUES (?, ?) RETURNING id`),
+			name, context,
+		).Scan(&id)
+		return id, err
+	}
+	res, err := tx.Exec(db.Rebind(`INSERT INTO tags (name, context) VALUES (?, ?)`), name, context)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// findOrCreateIngredientTx is the transactional variant of FindOrCreateIngredient.
+func findOrCreateIngredientTx(tx *sql.Tx, db *DB, name string) (int64, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var id int64
+	err := tx.QueryRow(db.Rebind(`SELECT id FROM ingredients WHERE name = ?`), name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if db.Driver() == "postgres" {
+		err := tx.QueryRow(db.Rebind(
+			`INSERT INTO ingredients (name, created_at) VALUES (?, ?) RETURNING id`),
+			name, time.Now(),
+		).Scan(&id)
+		return id, err
+	}
+	res, err := tx.Exec(db.Rebind(`INSERT INTO ingredients (name, created_at) VALUES (?, ?)`), name, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 // AllTagsByContext returns every tag value for a given context (for filter menus).

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djcp/enplace/internal/version"
@@ -90,8 +91,13 @@ var (
 				MarginTop(1)
 )
 
-// Tag pill style.
+// Tag pill style — cached per context to avoid allocation per render.
+var tagStyleCache sync.Map
+
 func TagStyle(context string) lipgloss.Style {
+	if cached, ok := tagStyleCache.Load(context); ok {
+		return cached.(lipgloss.Style)
+	}
 	var color lipgloss.TerminalColor = ColorMuted
 	switch context {
 	case "courses":
@@ -103,11 +109,13 @@ func TagStyle(context string) lipgloss.Style {
 	case "dietary_restrictions":
 		color = ColorTeal
 	}
-	return lipgloss.NewStyle().
+	s := lipgloss.NewStyle().
 		Background(color).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Padding(0, 1).
 		Margin(0, 1, 0, 0)
+	tagStyleCache.Store(context, s)
+	return s
 }
 
 // BreadPill renders the 🍞 bread/dough pill shown on bread recipes.
@@ -118,16 +126,24 @@ var BreadPill = lipgloss.NewStyle().
 	Margin(0, 1, 0, 0).
 	Render("🍞 bread/dough")
 
-// StatusBadge renders a colored status label.
+// StatusBadge renders a colored status label — cached per status to avoid
+// allocation per recipe row.
+var statusBadgeCache sync.Map
+
 func StatusBadge(status string) string {
+	if cached, ok := statusBadgeCache.Load(status); ok {
+		return cached.(string)
+	}
 	color, ok := StatusColors[status]
 	if !ok {
 		color = ColorMuted
 	}
-	return lipgloss.NewStyle().
+	s := lipgloss.NewStyle().
 		Foreground(color).
 		Bold(true).
 		Render(statusLabel(status))
+	statusBadgeCache.Store(status, s)
+	return s
 }
 
 func statusLabel(status string) string {

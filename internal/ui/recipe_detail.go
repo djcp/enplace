@@ -632,10 +632,15 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render(r.RatingGlyphs()))
 		sb.WriteString("\n")
 	}
+	// Compute bread metrics once for both hydration gauge and baker's percentages.
+	var bm *scaling.BreadMetricsResult
 	if r.IsBread {
-		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil {
-			sb.WriteString(renderHydrationGauge(bm, width))
+		if result, err := scaling.BreadMetrics(r.Ingredients); err == nil {
+			bm = &result
 		}
+	}
+	if bm != nil {
+		sb.WriteString(renderHydrationGauge(*bm, width))
 	}
 
 	// Tag pills.
@@ -697,13 +702,11 @@ func buildRecipeBlock(r *models.Recipe, width int) string {
 	}
 
 	// Baker's percentages chart — bread/dough recipes only.
-	if r.IsBread {
-		if bm, err := scaling.BreadMetrics(r.Ingredients); err == nil && len(bm.PerIngredient) > 0 {
-			sb.WriteString("\n")
-			sb.WriteString(sectionRule(width, "Baker's Percentages"))
-			sb.WriteString("\n")
-			sb.WriteString(renderBakerBars(bm, width))
-		}
+	if bm != nil && len(bm.PerIngredient) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(sectionRule(width, "Baker's Percentages"))
+		sb.WriteString("\n")
+		sb.WriteString(renderBakerBars(*bm, width))
 	}
 
 	return sb.String()
@@ -849,13 +852,20 @@ func renderMarkdown(text string, width int) string {
 }
 
 // breadcrumbTitle builds the styled "🍳 enplace / trail" banner segment.
+// The app and separator styles are cached to avoid allocation per render.
+var (
+	breadcrumbAppStyle    = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
+	breadcrumbSepStyle    = lipgloss.NewStyle().Foreground(ColorSubtle)
+	breadcrumbAppRendered = breadcrumbAppStyle.Render("🍳 enplace")
+	breadcrumbSepRendered = MutedStyle.Render(" / ")
+)
+
 func breadcrumbTitle(trail string) string {
-	app := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("🍳 enplace")
 	if trail == "" {
-		return app
+		return breadcrumbAppRendered
 	}
-	return app + MutedStyle.Render(" / ") +
-		lipgloss.NewStyle().Foreground(ColorSubtle).Render(trail)
+	return breadcrumbAppRendered + breadcrumbSepRendered +
+		breadcrumbSepStyle.Render(trail)
 }
 
 // renderDetailBanner renders the one-line titled banner rule with an

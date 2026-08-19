@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/djcp/enplace/internal/models"
+	"github.com/mattn/go-runewidth"
 )
 
 // FilterState is the complete search/filter state passed in and out of RunListUI.
@@ -492,6 +493,7 @@ const listColPad = 2
 // truncateW truncates s to fit within maxCols terminal display columns,
 // using display-width measurement so wide characters (emoji, CJK) are
 // counted correctly. Appends "…" when content is cut, unless maxCols ≤ 2.
+// Uses runewidth.RuneWidth directly to avoid per-rune string allocation.
 func truncateW(s string, maxCols int) string {
 	if maxCols <= 0 {
 		return ""
@@ -503,7 +505,7 @@ func truncateW(s string, maxCols int) string {
 		var out []rune
 		used := 0
 		for _, r := range s {
-			rw := lipgloss.Width(string(r))
+			rw := runewidth.RuneWidth(r)
 			if used+rw > maxCols {
 				break
 			}
@@ -515,7 +517,7 @@ func truncateW(s string, maxCols int) string {
 	var out []rune
 	used := 0
 	for _, r := range s {
-		rw := lipgloss.Width(string(r))
+		rw := runewidth.RuneWidth(r)
 		if used+rw > maxCols-1 {
 			break
 		}
