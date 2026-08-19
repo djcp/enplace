@@ -53,6 +53,16 @@ The version string embedded in released binaries comes from GoReleaser's ldflags
 
 **Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop.
 
+### Post-release cleanup
+
+After the release is confirmed (GitHub release published, Homebrew/Scoop updated):
+
+```sh
+# Delete the merged feature branch locally and remotely
+git branch -d <feature-branch>
+git push origin --delete <feature-branch>
+```
+
 ## Distribution
 
 - **`.goreleaser.yaml`** — the single source of truth for release artifacts. Six build targets, `CGO_ENABLED=0` (pure-Go sqlite → static binaries), archive name template `enplace_{{.Version}}_{{.Os}}_{{.Arch}}` (`.tar.gz` on unix, `.zip` on windows), sha256 `checksums.txt`. `homebrew_casks` and `scoops` publish to the external repos below. Validate locally with `goreleaser check` and dry-run with `goreleaser release --snapshot --clean`.
