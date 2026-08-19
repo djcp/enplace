@@ -42,7 +42,7 @@ Key-Length: 4096
 Name-Real: enplace APT Repository
 Name-Email: dan@collispuro.net
 Expire-Date: 2y
-Passphrase: YOUR_PASSPHRASE
+%no-protection
 %commit
 EOF
 ```
