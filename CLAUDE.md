@@ -19,7 +19,7 @@ Requires `tmux`, `asciinema`, and `termtosvg` — the script will tell you what'
 
 ## Creating a release
 
-Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask and Scoop manifest. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
+Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask, Scoop manifest, and APT repository. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
 
 ### Pre-flight
 
@@ -28,6 +28,45 @@ go test ./...   # all tests must pass
 gofmt -l .      # fix any listed files with gofmt -w <file>
 ./screenshots/regenerate.sh   # refresh screenshots if UI changed
 ```
+
+### APT repository setup (one-time)
+
+These steps only need to be done once, before the first release that triggers the APT repo workflow.
+
+#### 1. Generate a GPG signing key
+
+```sh
+gpg --batch --gen-key <<EOF
+Key-Type: ed25519
+Name-Real: enplace APT Repository
+Name-Email: dan@collispuro.net
+Expire-Date: 2y
+Passphrase: YOUR_PASSPHRASE
+%commit
+EOF
+```
+
+#### 2. Export the private key and store it as a GitHub secret
+
+```sh
+KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
+gpg --armor --export-secret-keys "$KEYID" > /tmp/enplace-signing.key
+```
+
+Go to `https://github.com/djcp/enplace/settings/secrets/actions`, create a new secret named `APT_GPG_PRIVATE_KEY`, and paste the entire contents of `/tmp/enplace-signing.key`. Then delete the local copy:
+
+```sh
+rm /tmp/enplace-signing.key
+```
+
+#### 3. Enable GitHub Pages
+
+Go to `https://github.com/djcp/enplace/settings/pages`:
+- **Source**: Deploy from a branch
+- **Branch**: `gh-pages` / `/ (root)`
+- Click Save
+
+The `apt-repo.yaml` workflow will create the `gh-pages` branch automatically on its first run if it doesn't exist.
 
 ### Steps
 
@@ -47,17 +86,21 @@ git tag v1.0.x-alpha
 git push origin v1.0.x-alpha
 ```
 
-That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64), creates the GitHub release, and attaches the archives + `checksums.txt` + `.deb` packages.
+That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/386, windows/amd64), creates the GitHub release, and attaches the archives + `checksums.txt` + `.deb` packages. The `apt-repo.yaml` workflow then fires automatically (via `workflow_run`), downloads the `.deb` assets, rebuilds the APT repository metadata, signs it with GPG, and publishes to the `gh-pages` branch.
 
 The version string embedded in released binaries comes from GoReleaser's ldflags injection (`-X …/internal/version.Version={{.Version}}`), so it always matches the tag. The hardcoded default in `version.go` is only the fallback for `go install` / `go build` dev builds. `enplace update` relies on the released binary reporting the true version.
 
-**Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop/deb packages.
+**Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop/deb packages. The APT repo is also only updated for stable tags.
 
 ### Post-release cleanup
 
-After the release is confirmed (GitHub release published, Homebrew/Scoop updated):
+After the release is confirmed (GitHub release published, Homebrew/Scoop updated, APT repo rebuilt):
 
 ```sh
+# Verify the APT repo was updated
+git fetch origin gh-pages
+git log --oneline -1 origin/gh-pages
+
 # Delete the merged feature branch locally and remotely
 git branch -d <feature-branch>
 git push origin --delete <feature-branch>
@@ -67,6 +110,7 @@ git push origin --delete <feature-branch>
 
 - **`.goreleaser.yaml`** — the single source of truth for release artifacts. Six build targets, `CGO_ENABLED=0` (pure-Go sqlite → static binaries), archive name template `enplace_{{.Version}}_{{.Os}}_{{.Arch}}` (`.tar.gz` on unix, `.zip` on windows), sha256 `checksums.txt`. `homebrew_casks`, `scoops`, and `nfpms` publish to their respective targets. Validate locally with `goreleaser check` and dry-run with `goreleaser release --snapshot --clean`.
 - **Debian packages** — `nfpms` builds `.deb` archives for amd64/arm64, installed to `/usr/bin` with zero runtime dependencies. Upgrade by downloading the latest `.deb` from the GitHub release page and running `sudo dpkg -i enplace_*.deb`.
+- **APT repository** — `apt-repo.yaml` rebuilds the repo on `workflow_run` after each stable release, serving signed packages at `djcp.github.io/enplace` via GitHub Pages. Users add the repo once with `curl | gpg --dearmor` and then `apt-get update && apt-get install enplace` gets new releases automatically.
 - **Install scripts** — `install.sh` (POSIX, `curl | sh`) and `install.ps1` (PowerShell, `irm | iex`) live in the repo root and are served raw from GitHub. Each detects OS/arch, resolves the latest release tag via the GitHub API (falling back to the newest release of any kind when `/releases/latest` 404s, e.g. if only prereleases exist), downloads the matching archive, verifies its sha256 against `checksums.txt`, and installs the binary. They expect **GoReleaser** asset naming — they will not work against the old `go-release-action` releases.
 - **External repos (manual, one-time prerequisites):** `djcp/homebrew-tap` and `djcp/scoop-bucket` must exist, and a classic PAT with `repo` scope must be added as the `HOMEBREW_TAP_GITHUB_TOKEN` secret on `djcp/enplace` so GoReleaser can push the cask/manifest cross-repo.
 

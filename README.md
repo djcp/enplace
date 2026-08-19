@@ -35,7 +35,19 @@ scoop install enplace
 
 Installs from the [`djcp/scoop-bucket`](https://github.com/djcp/scoop-bucket) bucket. Scoop downloads and checksum-verifies the release zip, unpacks it under `~/scoop/apps/enplace`, and adds a shim to `~/scoop/shims` (already on your `PATH`). Upgrade with `scoop update enplace`.
 
-### Debian / Ubuntu
+### Debian / Ubuntu (APT repo)
+
+```sh
+curl -fsSL https://djcp.github.io/enplace/enplace.gpg.key \
+    | sudo gpg --dearmor -o /etc/apt/keyrings/enplace.gpg
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/enplace.gpg] https://djcp.github.io/enplace stable main" \
+    | sudo tee /etc/apt/sources.list.d/enplace.list
+sudo apt-get update && sudo apt-get install enplace
+```
+
+Adds the enplace APT repository (hosted on GitHub Pages, GPG-signed). After the initial setup, upgrade with `sudo apt-get update && sudo apt-get upgrade enplace`.
+
+### Debian / Ubuntu (manual .deb)
 
 Download the `.deb` package from the [latest GitHub release](https://github.com/djcp/enplace/releases) for your architecture (`amd64` or `arm64`) and install it:
 

@@ -1,0 +1,128 @@
+# .github/workflows/apt-repo.yaml
+#
+# Builds the APT repository after a GoReleaser release. Downloads all .deb
+# assets from GitHub releases, generates repo metadata (Packages, Release),
+# signs it with GPG, and publishes to the gh-pages branch for GitHub Pages.
+#
+# Users install via:
+#   curl -fsSL https://djcp.github.io/enplace/enplace.gpg.key \
+#       | sudo gpg --dearmor -o /etc/apt/keyrings/enplace.gpg
+#   echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/enplace.gpg] https://djcp.github.io/enplace stable main" \
+#       | sudo tee /etc/apt/sources.list.d/enplace.list
+#   sudo apt-get update && sudo apt-get install enplace
+name: apt-repo
+
+on:
+  workflow_run:
+    workflows: ["release"]
+    types: [completed]
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build APT repo
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Install repo tooling
+        run: sudo apt-get update -qq && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Set up gh-pages branch
+        run: |
+          if git ls-remote --exit-code origin gh-pages; then
+            git clone --branch gh-pages --single-branch \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" site
+          else
+            mkdir -p site && cd site
+            git init
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+            git checkout --orphan gh-pages
+          fi
+
+      - name: Download .deb assets from all releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          mkdir -p site/pool/main/e/enplace
+
+          for tag in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName'); do
+            gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern '*.deb' \
+              --dir site/pool/main/e/enplace \
+              --clobber 2>/dev/null || true
+          done
+
+          echo "Downloaded .deb files:"
+          ls -lh site/pool/main/e/enplace/
+
+      - name: Build APT repository metadata
+        run: |
+          set -eu
+          cd site
+
+          mkdir -p dists/stable/main/binary-amd64
+          mkdir -p dists/stable/main/binary-arm64
+
+          for arch in amd64 arm64; do
+            dpkg-scanpackages --arch "$arch" --multiversion pool /dev/null \
+              > "dists/stable/main/binary-${arch}/Packages"
+            gzip -9 -k "dists/stable/main/binary-${arch}/Packages"
+          done
+
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=enplace \
+            -o APT::FTPArchive::Release::Label=enplace \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+            -o APT::FTPArchive::Release::Components=main \
+            release dists/stable > dists/stable/Release
+
+      - name: Sign repository with GPG
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          cd site
+
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
+
+          # InRelease: clearsigned (modern apt clients)
+          gpg --batch --yes \
+            --pinentry-mode loopback \
+            --digest-algo SHA256 \
+            --clearsign \
+            -u "$KEYID" \
+            --output dists/stable/InRelease \
+            dists/stable/Release
+
+          # Release.gpg: detached signature (legacy clients)
+          gpg --batch --yes \
+            --pinentry-mode loopback \
+            --digest-algo SHA256 \
+            -abs \
+            -u "$KEYID" \
+            --output dists/stable/Release.gpg \
+            dists/stable/Release
+
+          # Public key for users
+          gpg --armor --export "$KEYID" > enplace.gpg.key
+
+      - name: Publish to gh-pages
+        run: |
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "APT repo update for ${GITHUB_REF_NAME:-manual}"
+          git push --force origin HEAD:gh-pages
