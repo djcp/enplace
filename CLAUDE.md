@@ -37,7 +37,8 @@ These steps only need to be done once, before the first release that triggers th
 
 ```sh
 gpg --batch --gen-key <<EOF
-Key-Type: ed25519
+Key-Type: RSA
+Key-Length: 4096
 Name-Real: enplace APT Repository
 Name-Email: dan@collispuro.net
 Expire-Date: 2y
