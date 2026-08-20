@@ -173,7 +173,7 @@ func runAddQuiet(sourceURL string) error {
 func runDetailLoop(recipe *models.Recipe) error {
 	sd, _ := loadSearchData()
 	for {
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goQuery, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
 		if err != nil {
 			return err
 		}
@@ -213,6 +213,12 @@ func runDetailLoop(recipe *models.Recipe) error {
 		}
 		if goManage {
 			if err := runManageUI(); err != nil {
+				return err
+			}
+			continue
+		}
+		if goQuery {
+			if err := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel); err != nil {
 				return err
 			}
 			continue

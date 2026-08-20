@@ -7,6 +7,7 @@ import (
 
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/export"
+	"github.com/djcp/enplace/internal/services"
 	"github.com/djcp/enplace/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -86,11 +87,11 @@ func runList(_ *cobra.Command, _ []string) error {
 			selectedID = pendingDetailID
 			pendingDetailID = 0
 		} else {
-			var goAdd, goHome, goManage, searchConfirmed bool
+			var goAdd, goHome, goManage, goQuery, searchConfirmed bool
 			var filterState ui.FilterState
 			var deleteID, editID int64
 
-			selectedID, goAdd, goHome, searchConfirmed, filterState, deleteID, editID, goManage, err = ui.RunListUI(
+			selectedID, goAdd, goHome, searchConfirmed, filterState, deleteID, editID, goManage, goQuery, err = ui.RunListUI(
 				recipes,
 				ui.FilterState{
 					Query:      filter.Query,
@@ -122,6 +123,13 @@ func runList(_ *cobra.Command, _ []string) error {
 			}
 			if goManage {
 				if err := runManageUI(); err != nil {
+					return err
+				}
+				searchData, _ = loadSearchData()
+				continue
+			}
+			if goQuery {
+				if err := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel); err != nil {
 					return err
 				}
 				searchData, _ = loadSearchData()
@@ -164,7 +172,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goQuery, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(
 			recipe,
 			ui.FilterState{
 				Query:      filter.Query,
@@ -207,6 +215,14 @@ func runList(_ *cobra.Command, _ []string) error {
 		}
 		if goManage {
 			if err := runManageUI(); err != nil {
+				return err
+			}
+			searchData, _ = loadSearchData()
+			pendingDetailID = recipe.ID
+			continue
+		}
+		if goQuery {
+			if err := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel); err != nil {
 				return err
 			}
 			searchData, _ = loadSearchData()

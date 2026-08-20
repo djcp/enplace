@@ -75,6 +75,7 @@ type DetailModel struct {
 	goPrint          bool
 	goScale          bool
 	goManage         bool
+	goQuery          bool
 	goRetry          bool
 	confirmingDelete bool
 	deleteConfirmed  bool
@@ -119,6 +120,9 @@ func (m DetailModel) GoScale() bool { return m.goScale }
 
 // GoManage returns true when the user pressed "m" to open the manage screen.
 func (m DetailModel) GoManage() bool { return m.goManage }
+
+// GoQuery returns true when the user pressed "x" to open the query screen.
+func (m DetailModel) GoQuery() bool { return m.goQuery }
 
 // GoRetry returns true when the user pressed "r" to retry a failed extraction.
 func (m DetailModel) GoRetry() bool { return m.goRetry }
@@ -356,6 +360,10 @@ func (m DetailModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "m":
 		m.goManage = true
+		return m, tea.Quit
+
+	case "x":
+		m.goQuery = true
 		return m, tea.Quit
 
 	case "r":
@@ -891,6 +899,7 @@ func renderDetailFooter(isFailed bool, width int) string {
 		keyHint("s", "scale"),
 		keyHint("p", "export"),
 		keyHint("d", "delete"),
+		keyHint("x", "query"),
 	}
 	if isFailed {
 		keys = append(keys, keyHint("r", "retry"))
@@ -917,13 +926,13 @@ func min(a, b int) int {
 // RunDetailUI runs the interactive recipe detail TUI.
 // initial carries the active filter from the calling context; sd provides autocomplete suggestions.
 // Returns navigation signals, rating/notes updates, the return filter state, and any error.
-func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goScale bool, goManage bool, goRetry bool, deleteConfirmed bool, updateRating bool, newRating *int, updateNotes bool, newNotes string, returnFilter FilterState, err error) {
+func RunDetailUI(recipe *models.Recipe, initial FilterState, sd SearchData) (goHome bool, goAdd bool, goEdit bool, goPrint bool, goScale bool, goManage bool, goQuery bool, goRetry bool, deleteConfirmed bool, updateRating bool, newRating *int, updateNotes bool, newNotes string, returnFilter FilterState, err error) {
 	m := NewDetailModel(recipe, initial, sd)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return false, false, false, false, false, false, false, false, false, nil, false, "", FilterState{}, runErr
+		return false, false, false, false, false, false, false, false, false, false, nil, false, "", FilterState{}, runErr
 	}
 	fm := final.(DetailModel)
-	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoScale(), fm.GoManage(), fm.GoRetry(), fm.DeleteConfirmed(), fm.UpdateRating(), fm.NewRating(), fm.UpdateNotes(), fm.NewNotes(), fm.ReturnFilter(), nil
+	return fm.GoHome(), fm.GoAdd(), fm.GoEdit(), fm.GoPrint(), fm.GoScale(), fm.GoManage(), fm.GoQuery(), fm.GoRetry(), fm.DeleteConfirmed(), fm.UpdateRating(), fm.NewRating(), fm.UpdateNotes(), fm.NewNotes(), fm.ReturnFilter(), nil
 }

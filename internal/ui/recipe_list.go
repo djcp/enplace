@@ -78,6 +78,7 @@ type ListModel struct {
 	goAdd           bool
 	goHome          bool
 	goManage        bool
+	goQuery         bool
 	searchConfirmed bool
 	editID          int64
 
@@ -125,6 +126,9 @@ func (m ListModel) EditID() int64 { return m.editID }
 
 // GoManage returns true when the user pressed "m" to open the manage screen.
 func (m ListModel) GoManage() bool { return m.goManage }
+
+// GoQuery returns true when the user pressed "x" to open the query screen.
+func (m ListModel) GoQuery() bool { return m.goQuery }
 
 // Query returns the current text search query.
 func (m ListModel) Query() string { return m.query }
@@ -258,6 +262,9 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "m":
 		m.goManage = true
+		return m, tea.Quit
+	case "x":
+		m.goQuery = true
 		return m, tea.Quit
 	case "h":
 		m.goHome = true
@@ -654,6 +661,7 @@ func renderFooter(width int) string {
 		keyHint("a", "add"),
 		keyHint("/", "filter"),
 		keyHint("m", "manage"),
+		keyHint("x", "query"),
 		keyHint("q", "quit"),
 	}
 	return lipgloss.NewStyle().
@@ -742,14 +750,14 @@ func RunListUI(
 	initial FilterState,
 	sd SearchData,
 ) (selectedID int64, goAdd bool, goHome bool, searchConfirmed bool,
-	filter FilterState, deleteID int64, editID int64, goManage bool, err error) {
+	filter FilterState, deleteID int64, editID int64, goManage bool, goQuery bool, err error) {
 	m := NewListModel(recipes, initial, sd)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return 0, false, false, false, FilterState{}, 0, 0, false, runErr
+		return 0, false, false, false, FilterState{}, 0, 0, false, false, runErr
 	}
 	fm := final.(ListModel)
 	return fm.SelectedID(), fm.GoAdd(), fm.GoHome(), fm.SearchConfirmed(),
-		fm.Filter(), fm.DeleteTargetID(), fm.EditID(), fm.GoManage(), nil
+		fm.Filter(), fm.DeleteTargetID(), fm.EditID(), fm.GoManage(), fm.GoQuery(), nil
 }

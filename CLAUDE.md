@@ -17,6 +17,16 @@ If you changed anything visible in the TUI (layout, colors, new screens), regene
 
 Requires `tmux`, `asciinema`, and `termtosvg` — the script will tell you what's missing and how to install it.
 
+## Schema files
+
+If you add or modify a migration in `internal/db/migrations/`, update the schema constants:
+
+1. Extract the current schema:
+   - SQLite: `sqlite3 ~/.local/share/enplace/recipes.db .schema`
+   - PostgreSQL: `pg_dump --schema-only $TEST_POSTGRES_DSN`
+2. Update `internal/services/schema_sqlite.go` (constant `SQLiteSchema`)
+3. Update `internal/services/schema_postgres.go` (constant `PostgresSchema`)
+
 ## Creating a release
 
 Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask, Scoop manifest, and APT repository. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
@@ -441,6 +451,52 @@ After a destructive operation that returns the user to the list view (e.g. delet
 ### DB layer (`internal/db/manage_queries.go`)
 
 Tag and ingredient merge operations use transactions: repoint foreign-key joins (`recipe_tags` or `recipe_ingredients`) then delete the source row. Unit merge is a plain bulk `UPDATE recipe_ingredients SET unit=target WHERE unit=source` — units are inline strings, not a separate table.
+
+## Query engine (`internal/ui/query.go`, `cmd/query.go`)
+
+### Three-pane layout
+
+The query screen uses a three-pane Bubbletea model: results (upper left, 66%), schema browser (upper right, 33%), and SQL editor (bottom). It is accessible via the `x` key from the recipe list and detail views, or via `enplace query` from the CLI.
+
+### Input modes
+
+Two modes toggled with `ctrl+n`:
+- **Natural language**: user types a question, `GenerateSQL` sends it to Claude with the schema, gets back SQL + explanation.
+- **Raw SQL**: user types SQL directly, `ValidateReadOnly` checks it, then executes.
+
+Both modes converge at the same `ExecuteQuery` path.
+
+### Safety
+
+`ValidateReadOnly` in `internal/services/sql_safety.go` is the gatekeeper. It splits on semicolons, strips comments, and rejects any statement whose first keyword is not `select`, `with`, `explain`, or `pragma`. It catches multi-statement injection (`SELECT 1; DROP TABLE`). Both the CLI and TUI call it before execution.
+
+### Schema constants
+
+`internal/services/schema_sqlite.go` and `schema_postgres.go` export `SQLiteSchema` and `PostgresSchema` constants — the full DDL. The NL→SQL system prompt includes the relevant schema. When you add or modify a migration, update these constants (see "Schema files" above).
+
+### Key bindings (TUI)
+
+| Context | Key | Action |
+|---------|-----|--------|
+| Editor | `ctrl+n` | Toggle NL/raw mode |
+| Editor | `ctrl+e` / `ctrl+j` | Execute query |
+| Editor | `tab` | Cycle focus → results |
+| Results | `j/k` | Scroll up/down |
+| Results | `pgup/pgdown` | Page up/down |
+| Results | `tab` | Cycle focus → schema |
+| Schema | `j/k` | Navigate tables/columns |
+| Schema | `tab` | Cycle focus → editor |
+| Any | `esc` | Back to previous view |
+| Any | `c` | Clear results (results focus) |
+
+### CLI usage
+
+```sh
+enplace query "what are my highest rated Italian recipes?"
+enplace query --sql "SELECT name, rating FROM recipes WHERE rating >= 4"
+enplace query --json "show me all bread recipes"
+enplace query   # interactive prompt
+```
 
 ## Bread/dough recipes and hydration (`is_bread`, `ingredient_type`)
 
