@@ -29,7 +29,7 @@ If you add or modify a migration in `internal/db/migrations/`, update the schema
 
 ## Creating a release
 
-Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask, Scoop manifest, and APT repository. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
+Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask, Scoop manifest, and APT repository. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything. GoReleaser titles the release with the bare tag and generates only a commit changelog; a follow-up `gh release edit` gives each release its descriptive title and summary (step 3 below).
 
 ### Pre-flight
 
@@ -102,6 +102,17 @@ That's it. GoReleaser cross-compiles all six targets (linux/amd64, linux/arm64, 
 The version string embedded in released binaries comes from GoReleaser's ldflags injection (`-X …/internal/version.Version={{.Version}}`), so it always matches the tag. The hardcoded default in `version.go` is only the fallback for `go install` / `go build` dev builds. `enplace update` relies on the released binary reporting the true version.
 
 **Prerelease tags** (e.g. `v1.4.0-alpha`) are published as GitHub prereleases (`release.prerelease: auto`), and the cask/manifest are **not** pushed for them (`skip_upload: auto`). Only a stable (non-prerelease) tag updates Homebrew/Scoop/deb packages. The APT repo is also only updated for stable tags.
+
+3. **Describe the release** — GoReleaser publishes the release titled with the bare tag (`v1.7.0`) plus an auto-generated commit changelog. Once the workflow finishes, rename it and add a short summary so the releases page stays scannable (every release since v1.5.0 follows this):
+
+```sh
+gh release view vX.Y.Z --json body -q .body > /tmp/body.md   # generated changelog
+# write /tmp/desc.md: one-line summary + 2–4 bullets of user-facing changes
+{ cat /tmp/desc.md; printf '\n'; cat /tmp/body.md; } > /tmp/notes.md
+gh release edit vX.Y.Z --title "vX.Y.Z - <short description>" --notes-file /tmp/notes.md
+```
+
+Title format: `vX.Y.Z - <Short description>` (e.g. `v1.7.0 - Query engine integrated with the recipe list`; prereleases too: `v1.4.0-alpha - btop-inspired UI reskin`). Keep the auto-generated `## Changelog` below the new text.
 
 ### Post-release cleanup
 

@@ -59,6 +59,9 @@ release:
     name: enplace
   # Alpha/beta/rc tags (e.g. v1.4.0-alpha) are published as GitHub prereleases.
   prerelease: auto
+  # GoReleaser titles the release with the bare tag and auto-generates the
+  # changelog. After the workflow finishes, rename the release and prepend a
+  # short description via `gh release edit` — see "Creating a release" in CLAUDE.md.
 
 homebrew_casks:
   - name: enplace
