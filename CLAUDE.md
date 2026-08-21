@@ -464,14 +464,18 @@ Tag and ingredient merge operations use transactions: repoint foreign-key joins 
 
 ## Query engine (`internal/ui/query.go`, `cmd/query.go`)
 
-### Three-pane layout
+### Two-column layout
 
-The query screen uses a three-pane Bubbletea model: results (upper left, 66%), schema browser (upper right, 33%), and SQL editor (bottom). It is accessible via the `x` key from the recipe list and detail views, or via `enplace query` from the CLI.
+The query screen uses a two-column Bubbletea model. The **left column** is split vertically: a messages pane (top, ~20% of column height) shows the NL explanation and execution feedback, and an SQL editor pane (bottom) fills the rest. The **right column** is a schema browser showing all tables and columns. It is accessible via the `x` key from the recipe list and detail views, or via `enplace query` from the CLI.
+
+### List integration
+
+When the query screen closes successfully, it returns a `QueryResult` struct containing the matching recipe IDs, the NL question (if any), and the executed SQL. The recipe list replaces its contents with those recipes and shows the query source in the filter pane. Pressing `esc` in the list clears the query results and restores the full recipe list. Pressing `/` or `right` to enter filter mode also clears query results, preventing keystrokes from being consumed by the invisible filter input.
 
 ### Input modes
 
 Two modes toggled with `ctrl+n`:
-- **Natural language**: user types a question, `GenerateSQL` sends it to Claude with the schema, gets back SQL + explanation.
+- **Natural language**: user types a question, `GenerateSQL` sends it to Claude with the schema, gets back SQL + explanation. Results are cached (`sync.Mutex`-guarded `map[string]string`) so repeated identical questions skip the API call.
 - **Raw SQL**: user types SQL directly, `ValidateReadOnly` checks it, then executes.
 
 Both modes converge at the same `ExecuteQuery` path.
@@ -486,18 +490,21 @@ Both modes converge at the same `ExecuteQuery` path.
 
 ### Key bindings (TUI)
 
-| Context | Key | Action |
-|---------|-----|--------|
+Focus cycles: editor → messages → schema → editor (via `tab`).
+
+| Focus | Key | Action |
+|-------|-----|--------|
 | Editor | `ctrl+n` | Toggle NL/raw mode |
 | Editor | `ctrl+e` / `ctrl+j` | Execute query |
-| Editor | `tab` | Cycle focus → results |
-| Results | `j/k` | Scroll up/down |
-| Results | `pgup/pgdown` | Page up/down |
-| Results | `tab` | Cycle focus → schema |
+| Messages | `j/k` | Scroll up/down |
+| Messages | `pgup/pgdown` | Page up/down |
+| Messages | `g` / `G` | Go to top / bottom |
+| Messages | `c` | Clear messages |
 | Schema | `j/k` | Navigate tables/columns |
-| Schema | `tab` | Cycle focus → editor |
-| Any | `esc` | Back to previous view |
-| Any | `c` | Clear results (results focus) |
+| Schema | `pgup/pgdown` | Page up/down |
+| Schema | `g` / `G` | Go to top / bottom |
+| Any | `tab` | Cycle focus |
+| Any | `esc` / `ctrl+c` | Back to previous view |
 
 ### CLI usage
 
