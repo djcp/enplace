@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -25,6 +26,10 @@ func ValidateReadOnly(sql string) error {
 			}
 		}
 		if !isReadOnly {
+			slog.Default().Debug("query rejected",
+				"keyword", keyword,
+				"statement_count", len(statements),
+			)
 			return fmt.Errorf("not a read-only query: %s statement not allowed", strings.ToUpper(keyword))
 		}
 	}

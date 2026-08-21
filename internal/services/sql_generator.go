@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/djcp/enplace/internal/db"
@@ -44,6 +46,10 @@ RULES:
   ALTER, CREATE, TRUNCATE, GRANT, or REVOKE statements.
 - Use the exact table and column names from the schema above.
 - The database is %s. %s
+- ALWAYS include recipes.id (aliased as "id") in the SELECT clause. The
+  application uses this to fetch full recipe data. Example:
+  SELECT r.id, r.name FROM recipes r ...
+  The "id" column must be present in every query.
 - Return ONLY the SQL query, no explanation, no markdown code fences.
 - Always include a LIMIT clause (default 50) unless the user explicitly asks
   for all results.
@@ -63,6 +69,12 @@ RULES:
 
 // sqlBlockRE matches ```sql ... ``` or ``` ... ``` blocks.
 var sqlBlockRE = regexp.MustCompile("(?s)```(?:sql)?\\s*(.*?)\\s*```")
+
+// NL→SQL cache: maps question → generated SQL to avoid redundant inference.
+var (
+	sqlCacheMu sync.Mutex
+	sqlCache   = make(map[string]string)
+)
 
 // parseSQLResponse extracts the SQL query and optional explanation from Claude's response.
 func parseSQLResponse(raw string) (sql, explanation string) {
@@ -116,6 +128,24 @@ type GenerateSQLResult struct {
 // GenerateSQL takes a natural language question and the database schema,
 // sends it to Claude, and returns the generated SQL + a human explanation.
 func GenerateSQL(ctx context.Context, client AIClient, model, dialect, question string) (*GenerateSQLResult, error) {
+	start := time.Now()
+
+	// Check cache first.
+	sqlCacheMu.Lock()
+	if cached, ok := sqlCache[question]; ok {
+		sqlCacheMu.Unlock()
+		slog.Default().Debug("query generation cache hit",
+			"question", truncateLog(question),
+		)
+		return &GenerateSQLResult{SQL: cached}, nil
+	}
+	sqlCacheMu.Unlock()
+
+	slog.Default().Debug("query generation started",
+		"dialect", dialect,
+		"question", truncateLog(question),
+	)
+
 	var schemaText string
 	switch dialect {
 	case "postgres":
@@ -127,17 +157,41 @@ func GenerateSQL(ctx context.Context, client AIClient, model, dialect, question 
 	sysPrompt := schemaPrompt(dialect, schemaText)
 	raw, err := client.Complete(ctx, model, sysPrompt, question)
 	if err != nil {
+		slog.Default().Error("query generation failed",
+			"error", err,
+			"question", truncateLog(question),
+		)
 		return nil, fmt.Errorf("generating SQL: %w", err)
 	}
 
 	sql, explanation := parseSQLResponse(raw)
 	if sql == "" {
-		return nil, fmt.Errorf("no SQL in response: %s", raw)
+		err := fmt.Errorf("no SQL in response: %s", raw)
+		slog.Default().Error("query generation failed",
+			"error", err,
+			"question", truncateLog(question),
+		)
+		return nil, err
 	}
 
 	if err := ValidateReadOnly(sql); err != nil {
+		slog.Default().Error("query generation failed",
+			"error", err,
+			"question", truncateLog(question),
+		)
 		return nil, fmt.Errorf("generated SQL is not read-only: %w", err)
 	}
+
+	slog.Default().Debug("query generation complete",
+		"sql", truncateLog(sql),
+		"has_explanation", explanation != "",
+		"duration", time.Since(start),
+	)
+
+	// Store in cache.
+	sqlCacheMu.Lock()
+	sqlCache[question] = sql
+	sqlCacheMu.Unlock()
 
 	return &GenerateSQLResult{
 		SQL:         sql,
@@ -160,16 +214,27 @@ func ExecuteQuery(database *db.DB, query string) ([]string, [][]string, time.Dur
 	}
 
 	start := time.Now()
+	slog.Default().Debug("query execution started",
+		"query", truncateLog(query),
+	)
 
 	// Use the raw *sqlx.DB to get generic rows.
 	rows, err := database.Queryx(query)
 	if err != nil {
+		slog.Default().Error("query execution failed",
+			"error", err,
+			"query", truncateLog(query),
+		)
 		return nil, nil, 0, fmt.Errorf("executing query: %w", err)
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
+		slog.Default().Error("query execution failed",
+			"error", err,
+			"query", truncateLog(query),
+		)
 		return nil, nil, 0, fmt.Errorf("getting columns: %w", err)
 	}
 
@@ -182,6 +247,10 @@ func ExecuteQuery(database *db.DB, query string) ([]string, [][]string, time.Dur
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
+			slog.Default().Error("query execution failed",
+				"error", err,
+				"query", truncateLog(query),
+			)
 			return nil, nil, 0, fmt.Errorf("scanning row: %w", err)
 		}
 
@@ -210,10 +279,29 @@ func ExecuteQuery(database *db.DB, query string) ([]string, [][]string, time.Dur
 	}
 
 	if err := rows.Err(); err != nil {
+		slog.Default().Error("query execution failed",
+			"error", err,
+			"query", truncateLog(query),
+		)
 		return nil, nil, 0, fmt.Errorf("iterating rows: %w", err)
 	}
 
-	return columns, result, time.Since(start), nil
+	duration := time.Since(start)
+	slog.Default().Debug("query execution complete",
+		"row_count", len(result),
+		"column_count", len(columns),
+		"duration", duration,
+	)
+
+	return columns, result, duration, nil
+}
+
+// truncateLog truncates a string to 120 characters for log output.
+func truncateLog(s string) string {
+	if len(s) > 120 {
+		return s[:117] + "..."
+	}
+	return s
 }
 
 // ScanRow is a helper to scan a single row into a destination.

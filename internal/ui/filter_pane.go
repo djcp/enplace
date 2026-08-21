@@ -33,6 +33,11 @@ type filterState struct {
 
 	// active = the pane is currently open / the user is typing in it.
 	active bool
+
+	// Query result state — when set, replaces the normal filter rows.
+	queryActive bool
+	queryText   string // NL question (empty for raw SQL)
+	queryModeNL bool   // true = NL, false = raw SQL
 }
 
 // newFilterState constructs a filterState from an external FilterState and SearchData.
@@ -203,6 +208,28 @@ func handleFilterKey(fs filterState, msg tea.KeyMsg) (filterState, bool) {
 // accent colour while the pane is active.
 func renderFilterPanel(fs filterState, width, innerHeight int) string {
 	var sb strings.Builder
+
+	if fs.queryActive {
+		// Query results active — show query source and esc hint.
+		sb.WriteString("\n")
+		if fs.queryModeNL {
+			sb.WriteString(MutedStyle.Render(" query:"))
+			sb.WriteString("\n ")
+			sb.WriteString(lipgloss.NewStyle().Foreground(ColorSecondary).Render(truncateW(fs.queryText, width-6)))
+			sb.WriteString("\n\n")
+			sb.WriteString(MutedStyle.Render(" natural language"))
+		} else {
+			sb.WriteString(MutedStyle.Render(" query:"))
+			sb.WriteString("\n ")
+			sb.WriteString(lipgloss.NewStyle().Foreground(ColorSecondary).Render("SQL query"))
+			sb.WriteString("\n\n")
+			sb.WriteString(MutedStyle.Render(" raw sql"))
+		}
+		sb.WriteString("\n\n\n")
+		sb.WriteString(MutedStyle.Render(" esc to clear · / to filter"))
+
+		return framePanel(sb.String(), width, innerHeight, "⚙ filters", "", "● active", ColorSecondary, ColorSecondary)
+	}
 
 	sb.WriteString("\n")
 	sb.WriteString(renderFilterPaneSearch(fs.query, fs.active && fs.focus == ffText))

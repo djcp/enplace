@@ -194,6 +194,69 @@ func ListRecipes(db *DB, f RecipeFilter) ([]models.Recipe, error) {
 	return recipes, nil
 }
 
+// GetRecipesByIDs returns fully-hydrated recipes for the given IDs, newest first.
+func GetRecipesByIDs(db *DB, ids []int64) ([]models.Recipe, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	var recipes []models.Recipe
+	if err := db.Select(&recipes,
+		fmt.Sprintf(`SELECT r.* FROM recipes r WHERE r.id IN (%s) ORDER BY r.updated_at DESC`, placeholders),
+		args...,
+	); err != nil {
+		return nil, err
+	}
+
+	// Batch-load tags for all recipes via a single JOIN query.
+	if len(recipes) > 0 {
+		recipeIDs := make([]interface{}, len(recipes))
+		for i, r := range recipes {
+			recipeIDs[i] = r.ID
+		}
+
+		type tagRow struct {
+			RecipeID int64  `db:"recipe_id"`
+			ID       int64  `db:"id"`
+			Name     string `db:"name"`
+			Context  string `db:"context"`
+		}
+		var rows []tagRow
+		if err := db.Select(&rows,
+			fmt.Sprintf(`SELECT rt.recipe_id, t.id, t.name, t.context
+				FROM tags t
+				JOIN recipe_tags rt ON rt.tag_id = t.id
+				WHERE rt.recipe_id IN (%s)
+				ORDER BY t.context, t.name`, placeholders),
+			recipeIDs...,
+		); err != nil {
+			return nil, err
+		}
+
+		tagsByRecipe := make(map[int64][]models.Tag)
+		for _, row := range rows {
+			tagsByRecipe[row.RecipeID] = append(tagsByRecipe[row.RecipeID], models.Tag{
+				ID:      row.ID,
+				Name:    row.Name,
+				Context: row.Context,
+			})
+		}
+		for i := range recipes {
+			recipes[i].Tags = tagsByRecipe[recipes[i].ID]
+		}
+	}
+
+	return recipes, nil
+}
+
 // --- Ingredients & RecipeIngredients ---
 
 // FindOrCreateIngredient returns the existing ingredient ID or creates a new one.

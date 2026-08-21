@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/services"
 )
+
+const queryAILimit = 60 * time.Second
 
 type queryPhase int
 
@@ -24,16 +28,31 @@ const (
 type queryMode int
 
 const (
-	queryModeNL  queryMode = iota // natural language
-	queryModeRaw                  // raw SQL
+	queryModeNL queryMode = iota
+	queryModeRaw
 )
 
 type queryFocus int
 
 const (
-	queryFocusEditor queryFocus = iota
-	queryFocusResults
-	queryFocusSchema
+	queryFocusSchema queryFocus = iota
+	queryFocusMessages
+	queryFocusEditor
+)
+
+// QueryResult is returned by RunQueryUI when the query screen closes.
+type QueryResult struct {
+	RecipeIDs []int64
+	QueryText string // the NL question (empty for raw SQL)
+	SQL       string // the generated/executed SQL
+	Err       error
+}
+
+// Package-level state to remember the last query across invocations.
+var (
+	lastQueryText string
+	lastQueryMode queryMode
+	lastEditorVal string
 )
 
 // querySchemaEntry represents a table in the schema browser.
@@ -47,8 +66,10 @@ type queryColumn struct {
 	typ  string
 }
 
-// QueryModel is the three-pane query TUI: results (upper left),
-// schema browser (upper right), and SQL editor (bottom).
+// QueryModel is the two-column query TUI:
+//
+//	Left 66%:  Messages pane (top) + Editor pane (bottom)
+//	Right 33%: Schema pane (full height)
 type QueryModel struct {
 	sqlDB   *db.DB
 	client  services.AIClient
@@ -63,27 +84,33 @@ type QueryModel struct {
 	// Editor.
 	editor textarea.Model
 
-	// Results.
-	columns   []string
-	rows      [][]string
-	duration  time.Duration
-	resultMsg string
-	resultErr bool
-	scrollY   int
+	// Messages pane (left, top).
+	msgLines  []string
+	msgScroll int
 
-	// Schema browser.
+	// Schema browser (right, full height).
 	schema      []querySchemaEntry
 	schemaCur   int
-	schemaLines []string // flattened renderable lines
+	schemaLines []string
 
-	// Error.
+	// Last executed SQL (for display in messages pane).
+	lastSQL string
+
+	// Query text (NL question or raw SQL).
+	queryText string
+
+	// Columns/rows from last execution (for ID extraction).
+	columns []string
+	rows    [][]string
+
+	// Error message.
 	errMsg string
 
-	// Return signal.
-	done bool
+	// Result to return.
+	result QueryResult
 }
 
-// queryEditorSchema parses the schema text into a list of tables with columns.
+// querySchemaParse parses the schema text into a list of tables with columns.
 func querySchemaParse(schemaText string) []querySchemaEntry {
 	var tables []querySchemaEntry
 	var current *querySchemaEntry
@@ -91,24 +118,19 @@ func querySchemaParse(schemaText string) []querySchemaEntry {
 	for _, line := range strings.Split(schemaText, "\n") {
 		line = strings.TrimSpace(line)
 
-		// Detect CREATE TABLE.
 		if strings.HasPrefix(strings.ToUpper(line), "CREATE TABLE") {
-			// Extract table name: CREATE TABLE IF NOT EXISTS foo (
 			name := line
 			name = strings.ReplaceAll(name, "CREATE TABLE IF NOT EXISTS ", "")
 			name = strings.ReplaceAll(name, "CREATE TABLE ", "")
 			name = strings.TrimSpace(name)
 			name = strings.TrimRight(name, "(")
 			name = strings.TrimSpace(name)
-			current = &querySchemaEntry{name: name}
-			tables = append(tables, *current)
-			// Point to the last element so we can modify it.
+			tables = append(tables, querySchemaEntry{name: name})
 			current = &tables[len(tables)-1]
 			continue
 		}
 
 		if current != nil {
-			// Detect column definition: starts with a word, followed by a type.
 			trimmed := strings.TrimLeft(line, " \t")
 			if trimmed == "" || trimmed == ");" || strings.HasPrefix(strings.ToUpper(trimmed), "CREATE ") ||
 				strings.HasPrefix(strings.ToUpper(trimmed), "UNIQUE ") {
@@ -121,7 +143,6 @@ func querySchemaParse(schemaText string) []querySchemaEntry {
 			if len(parts) >= 2 {
 				colName := parts[0]
 				colType := parts[1]
-				// Skip constraints like PRIMARY, NOT, DEFAULT, REFERENCES, UNIQUE.
 				upper := strings.ToUpper(colName)
 				if upper == "PRIMARY" || upper == "NOT" || upper == "DEFAULT" || upper == "REFERENCES" ||
 					upper == "UNIQUE" || upper == "CHECK" || upper == "ON" || upper == "CONSTRAINT" ||
@@ -135,7 +156,7 @@ func querySchemaParse(schemaText string) []querySchemaEntry {
 	return tables
 }
 
-// querySchemaLines flattens the schema entries into renderable lines.
+// querySchemaFlatten flattens the schema entries into renderable lines.
 func querySchemaFlatten(entries []querySchemaEntry) []string {
 	var lines []string
 	for _, t := range entries {
@@ -170,6 +191,17 @@ func newQueryModel(sqlDB *db.DB, client services.AIClient, model, dialect string
 	ed.SetHeight(3)
 	ed.Focus()
 
+	// Restore last query state.
+	if lastEditorVal != "" {
+		ed.SetValue(lastEditorVal)
+	}
+	mode := lastQueryMode
+	if mode == queryModeNL {
+		ed.Placeholder = "Ask a question about your recipes..."
+	} else {
+		ed.Placeholder = "Enter SQL query..."
+	}
+
 	schemaText := services.SQLiteSchema
 	if dialect == "postgres" {
 		schemaText = services.PostgresSchema
@@ -181,6 +213,8 @@ func newQueryModel(sqlDB *db.DB, client services.AIClient, model, dialect string
 		client:  client,
 		model:   model,
 		dialect: dialect,
+		focus:   queryFocusEditor,
+		mode:    mode,
 		editor:  ed,
 		schema:  entries,
 	}
@@ -199,6 +233,46 @@ func (m QueryModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case querySQLGeneratedMsg:
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+			m.setMsgError(m.errMsg)
+			m.phase = queryPhaseError
+			return m, nil
+		}
+		m.lastSQL = msg.result.SQL
+		m.setMsgSQL(msg.result.SQL)
+		m.phase = queryPhaseLoading
+		return m, m.executeSQLCmd(msg.result.SQL)
+
+	case querySQLExecutedMsg:
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+			m.setMsgError(m.errMsg)
+			m.phase = queryPhaseError
+			return m, nil
+		}
+		m.columns = msg.columns
+		m.rows = msg.rows
+		m.phase = queryPhaseResults
+		m.msgScroll = 0
+		m.buildMsgResultLines(msg.duration)
+
+		// Extract recipe IDs and auto-close.
+		ids := extractIDs(msg.columns, msg.rows)
+		if len(ids) == 0 {
+			m.errMsg = "Query did not return recipe IDs — try asking about specific recipes."
+			m.setMsgError(m.errMsg)
+			m.phase = queryPhaseError
+			return m, nil
+		}
+		m.result = QueryResult{
+			RecipeIDs: ids,
+			QueryText: m.queryText,
+			SQL:       m.lastSQL,
+		}
+		return m, tea.Quit
 	}
 
 	// Forward to editor for cursor blink etc.
@@ -210,10 +284,37 @@ func (m QueryModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// extractIDs scans the query result columns for an "id" column and returns
+// the values as int64 slices. Returns nil if no id column is found.
+func extractIDs(columns []string, rows [][]string) []int64 {
+	idIdx := -1
+	for i, col := range columns {
+		if strings.EqualFold(col, "id") {
+			idIdx = i
+			break
+		}
+	}
+	if idIdx < 0 {
+		return nil
+	}
+
+	var ids []int64
+	for _, row := range rows {
+		if idIdx >= len(row) {
+			continue
+		}
+		id, err := strconv.ParseInt(row[idIdx], 10, 64)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (m QueryModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "esc":
-		m.done = true
 		return m, tea.Quit
 
 	case "tab":
@@ -239,66 +340,69 @@ func (m QueryModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == queryFocusEditor && m.phase != queryPhaseLoading {
 			return m.executeQuery()
 		}
+		return m, nil
 
 	case "up", "k":
-		if m.focus == queryFocusResults {
-			if m.scrollY > 0 {
-				m.scrollY--
-			}
+		if m.focus == queryFocusMessages {
+			m.moveMsgScroll(-1)
 		} else if m.focus == queryFocusSchema {
 			if m.schemaCur > 0 {
 				m.schemaCur--
 			}
 		}
 	case "down", "j":
-		if m.focus == queryFocusResults {
-			maxScroll := len(m.rows) - m.resultsVisibleRows()
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			if m.scrollY < maxScroll {
-				m.scrollY++
-			}
+		if m.focus == queryFocusMessages {
+			m.moveMsgScroll(1)
 		} else if m.focus == queryFocusSchema {
 			if m.schemaCur < len(m.schemaLines)-1 {
 				m.schemaCur++
 			}
 		}
 	case "pgup":
-		if m.focus == queryFocusResults {
-			m.scrollY -= m.resultsVisibleRows()
-			if m.scrollY < 0 {
-				m.scrollY = 0
-			}
+		if m.focus == queryFocusMessages {
+			m.moveMsgScroll(-m.msgVisibleRows())
 		} else if m.focus == queryFocusSchema {
-			m.schemaCur -= m.resultsVisibleRows()
+			m.schemaCur -= m.leftColHeight()
 			if m.schemaCur < 0 {
 				m.schemaCur = 0
 			}
 		}
 	case "pgdown":
-		if m.focus == queryFocusResults {
-			m.scrollY += m.resultsVisibleRows()
-			maxScroll := len(m.rows) - m.resultsVisibleRows()
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			if m.scrollY > maxScroll {
-				m.scrollY = maxScroll
-			}
+		if m.focus == queryFocusMessages {
+			m.moveMsgScroll(m.msgVisibleRows())
 		} else if m.focus == queryFocusSchema {
-			m.schemaCur += m.resultsVisibleRows()
+			m.schemaCur += m.leftColHeight()
 			if m.schemaCur >= len(m.schemaLines) {
 				m.schemaCur = len(m.schemaLines) - 1
 			}
 		}
+	case "g":
+		if m.focus == queryFocusMessages {
+			m.msgScroll = 0
+		} else if m.focus == queryFocusSchema {
+			m.schemaCur = 0
+		}
+	case "G":
+		if m.focus == queryFocusMessages {
+			maxScroll := len(m.msgLines) - m.msgVisibleRows()
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.msgScroll = maxScroll
+		} else if m.focus == queryFocusSchema {
+			m.schemaCur = len(m.schemaLines) - 1
+			if m.schemaCur < 0 {
+				m.schemaCur = 0
+			}
+		}
 	case "c":
-		if m.focus == queryFocusResults {
+		if m.focus == queryFocusMessages {
+			m.msgLines = nil
+			m.msgScroll = 0
+			m.lastSQL = ""
 			m.columns = nil
 			m.rows = nil
-			m.resultMsg = ""
 			m.phase = queryPhaseInput
-			m.scrollY = 0
 		}
 	}
 
@@ -311,6 +415,78 @@ func (m QueryModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// msgVisibleRows returns how many content lines fit in the messages pane.
+func (m QueryModel) msgVisibleRows() int {
+	return m.leftColMsgInnerH()
+}
+
+// leftColHeight returns the height of the left column (messages + editor).
+func (m QueryModel) leftColHeight() int {
+	v := m.height - 3 // banner(1) + footer(2)
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+// moveMsgScroll adjusts msgScroll by delta and clamps.
+func (m *QueryModel) moveMsgScroll(delta int) {
+	if len(m.msgLines) == 0 {
+		return
+	}
+	m.msgScroll += delta
+	if m.msgScroll < 0 {
+		m.msgScroll = 0
+	}
+	maxScroll := len(m.msgLines) - m.msgVisibleRows()
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.msgScroll > maxScroll {
+		m.msgScroll = maxScroll
+	}
+}
+
+// setMsgError sets the messages lines to display an error.
+func (m *QueryModel) setMsgError(errMsg string) {
+	m.msgLines = []string{
+		ErrorStyle.Render("  " + errMsg),
+	}
+	m.msgScroll = 0
+}
+
+// setMsgSQL sets the messages lines to display the generated SQL.
+func (m *QueryModel) setMsgSQL(sql string) {
+	m.msgLines = []string{
+		MutedStyle.Render("  Generated SQL:"),
+		MutedStyle.Render(""),
+	}
+	for _, line := range strings.Split(sql, "\n") {
+		m.msgLines = append(m.msgLines, "  "+line)
+	}
+	m.msgScroll = 0
+}
+
+// buildMsgResultLines builds messages lines after successful execution.
+func (m *QueryModel) buildMsgResultLines(duration time.Duration) {
+	var lines []string
+
+	// Show the executed SQL.
+	if m.lastSQL != "" {
+		lines = append(lines, MutedStyle.Render("  Query:"))
+		lines = append(lines, MutedStyle.Render(""))
+		for _, l := range strings.Split(m.lastSQL, "\n") {
+			lines = append(lines, "  "+l)
+		}
+		lines = append(lines, MutedStyle.Render(""))
+	}
+
+	lines = append(lines, MutedStyle.Render("  Completed in "+fmt.Sprintf("%.0f", float64(duration.Microseconds())/1000)+"ms"))
+
+	m.msgLines = lines
+	m.msgScroll = 0
+}
+
 // executeQuery runs the SQL in the editor (generating it from NL if needed).
 func (m QueryModel) executeQuery() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.editor.Value())
@@ -318,22 +494,32 @@ func (m QueryModel) executeQuery() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	var sql string
+	// Remember the query for next time.
+	lastEditorVal = text
+	lastQueryMode = m.mode
+
 	if m.mode == queryModeNL {
+		m.queryText = text
 		m.phase = queryPhaseLoading
+		m.msgLines = []string{MutedStyle.Render("  Generating SQL...")}
+		m.msgScroll = 0
 		return m, m.generateSQLCmd(text)
 	}
 
 	// Raw mode: validate and execute directly.
 	if err := services.ValidateReadOnly(text); err != nil {
 		m.errMsg = err.Error()
+		m.setMsgError(m.errMsg)
 		m.phase = queryPhaseError
 		return m, nil
 	}
-	sql = text
 
+	m.queryText = "" // raw SQL — no NL question
 	m.phase = queryPhaseLoading
-	return m, m.executeSQLCmd(sql)
+	m.lastSQL = text
+	m.msgLines = []string{MutedStyle.Render("  Executing...")}
+	m.msgScroll = 0
+	return m, m.executeSQLCmd(text)
 }
 
 type querySQLGeneratedMsg struct {
@@ -350,7 +536,8 @@ type querySQLExecutedMsg struct {
 
 func (m QueryModel) generateSQLCmd(question string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), queryAILimit)
+		defer cancel()
 		result, err := services.GenerateSQL(ctx, m.client, m.model, m.dialect, question)
 		return querySQLGeneratedMsg{result: result, err: err}
 	}
@@ -361,14 +548,6 @@ func (m QueryModel) executeSQLCmd(sql string) tea.Cmd {
 		columns, rows, duration, err := services.ExecuteQuery(m.sqlDB, sql)
 		return querySQLExecutedMsg{columns: columns, rows: rows, duration: duration, err: err}
 	}
-}
-
-func (m QueryModel) resultsVisibleRows() int {
-	v := m.height - 12 // banner(1) + top divider(1) + editor area(~5) + footer(2) + padding(3)
-	if v < 1 {
-		v = 1
-	}
-	return v
 }
 
 func (m QueryModel) View() string {
@@ -382,141 +561,92 @@ func (m QueryModel) View() string {
 	sb.WriteString(renderQueryBanner(m.width))
 	sb.WriteString("\n\n")
 
-	// Top panes: results (left) + schema (right).
-	topHeight := m.height - 10 // banner(1) + divider(1) + editor(~5) + footer(2) + padding(1)
-	if topHeight < 3 {
-		topHeight = 3
-	}
+	// Two-column layout: left 66% (messages + editor), right 33% (schema).
+	leftW := m.width * 66 / 100
+	rightW := m.width - leftW
+	colH := m.leftColHeight()
 
-	leftW := m.width * 2 / 3
-	rightW := m.width - leftW - 1 // -1 for divider
-
-	resultsPane := m.renderResultsPane(leftW, topHeight)
-	schemaPane := m.renderSchemaPane(rightW, topHeight)
-
-	// Join panes side by side.
-	topPanes := lipgloss.JoinHorizontal(lipgloss.Top, resultsPane, schemaPane)
-	sb.WriteString(topPanes)
-	sb.WriteString("\n")
-
-	// Divider.
-	sb.WriteString(strings.Repeat("─", m.width-2))
-	sb.WriteString("\n")
-
-	// Editor pane.
-	sb.WriteString(m.renderEditorPane(m.width, 5))
-	sb.WriteString("\n")
+	leftPane := m.renderLeftPane(leftW, colH)
+	rightPane := m.renderSchemaPane(rightW, colH)
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
 
 	// Footer.
-	sb.WriteString(renderQueryFooter(m.width))
+	sb.WriteString(m.renderQueryFooter(m.width))
 
 	return sb.String()
 }
 
-func (m QueryModel) renderResultsPane(width, height int) string {
+func (m QueryModel) renderLeftPane(width, height int) string {
+	msgInnerH := m.leftColMsgInnerH()
+	editorInnerH := height - 3 - msgInnerH
+	if editorInnerH < 3 {
+		editorInnerH = 3
+	}
+
+	var sb strings.Builder
+	sb.WriteString(m.renderMessagesPane(width, msgInnerH))
+	sb.WriteString("\n") // framePanel has no trailing \n; separator needed before next panel
+	sb.WriteString(m.renderEditorPane(width, editorInnerH))
+	return sb.String()
+}
+
+// leftColMsgInnerH returns the messages pane content height.
+// Two framePanels stacked vertically must total the same rendered height
+// as the single schema framePanel at the same colH.
+// Each framePanel adds 2 border lines (top + bottom), plus 1 separator
+// newline between them:
+//
+//	(msgInnerH + 2) + 1 + (editorInnerH + 2) = colH + 2
+//	→ msgInnerH + editorInnerH = colH - 3
+//
+// Messages gets ~20% (it only shows the executed query, errors, or a
+// placeholder), editor fills the rest.
+func (m QueryModel) leftColMsgInnerH() int {
+	colH := m.leftColHeight()
+	v := colH * 20 / 100
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+func (m QueryModel) renderMessagesPane(width, height int) string {
 	var content string
 
-	switch m.phase {
-	case queryPhaseLoading:
+	switch {
+	case m.phase == queryPhaseLoading && len(m.msgLines) == 0:
 		content = MutedStyle.Render("  Generating SQL...")
-	case queryPhaseError:
-		content = ErrorStyle.Render("  " + m.errMsg)
-	case queryPhaseResults:
-		if len(m.columns) == 0 {
-			content = MutedStyle.Render("  No results.")
-		} else {
-			content = m.renderResultsTable(width - 4)
-		}
-	default:
+	case len(m.msgLines) == 0:
 		if m.editor.Value() == "" {
-			content = MutedStyle.Render("  Press ctrl+e to execute a query.")
+			if m.mode == queryModeNL {
+				content = MutedStyle.Render("  Ask a question about your recipes in natural language.")
+			} else {
+				content = MutedStyle.Render("  Create an SQL query about your recipes.")
+			}
 		} else {
 			content = MutedStyle.Render("  Press ctrl+e to execute.")
 		}
+	default:
+		visible := m.msgVisibleRows()
+		end := m.msgScroll + visible
+		if end > len(m.msgLines) {
+			end = len(m.msgLines)
+		}
+		var sb strings.Builder
+		for _, line := range m.msgLines[m.msgScroll:end] {
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		content = sb.String()
 	}
 
-	title := "Results"
-	if len(m.rows) > 0 {
-		title = "Results (" + itoa(len(m.rows)) + " rows, " + m.duration.Round(time.Microsecond).String() + ")"
-	}
-
+	title := "Messages"
 	borderColor := ColorBorder
-	if m.focus == queryFocusResults {
+	if m.focus == queryFocusMessages {
 		borderColor = ColorPrimary
 	}
 
-	return framePanel(content, width, height-2, title, "", "", borderColor, ColorPrimary)
-}
-
-func (m QueryModel) renderResultsTable(innerWidth int) string {
-	if len(m.columns) == 0 || len(m.rows) == 0 {
-		return ""
-	}
-
-	// Compute column widths.
-	widths := make([]int, len(m.columns))
-	for i, col := range m.columns {
-		w := len(col)
-		if w > 30 {
-			w = 30
-		}
-		widths[i] = w
-	}
-	for _, row := range m.rows {
-		for i, cell := range row {
-			if i < len(widths) {
-				w := len(cell)
-				if w > widths[i] {
-					if w > 30 {
-						w = 30
-					}
-					widths[i] = w
-				}
-			}
-		}
-	}
-
-	// Header.
-	var sb strings.Builder
-	for i, col := range m.columns {
-		if i < len(widths) {
-			sb.WriteString(truncate(col, widths[i]))
-			sb.WriteString("  ")
-		}
-	}
-	sb.WriteString("\n")
-
-	// Separator.
-	for _, w := range widths {
-		sb.WriteString(strings.Repeat("─", w))
-		sb.WriteString("  ")
-	}
-	sb.WriteString("\n")
-
-	// Rows.
-	maxRows := m.resultsVisibleRows() - 2
-	if maxRows < 1 {
-		maxRows = 1
-	}
-	end := m.scrollY + maxRows
-	if end > len(m.rows) {
-		end = len(m.rows)
-	}
-	for _, row := range m.rows[m.scrollY:end] {
-		for i, cell := range row {
-			if i < len(widths) {
-				c := cell
-				if len(c) > 30 {
-					c = c[:27] + "..."
-				}
-				sb.WriteString(truncate(c, widths[i]))
-				sb.WriteString("  ")
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
+	return framePanel(content, width, height, title, "", "", borderColor, ColorPrimary)
 }
 
 func (m QueryModel) renderSchemaPane(width, height int) string {
@@ -543,7 +673,7 @@ func (m QueryModel) renderSchemaPane(width, height int) string {
 		borderColor = ColorPrimary
 	}
 
-	return framePanel(content, width, height-2, "Schema", "", "", borderColor, ColorPrimary)
+	return framePanel(content, width, height, "Schema", "", "", borderColor, ColorPrimary)
 }
 
 func (m QueryModel) renderEditorPane(width, height int) string {
@@ -565,11 +695,16 @@ func renderQueryBanner(width int) string {
 	return flatRuleStyled(width, breadcrumbTitle("manage / query"), "", ColorBorder, ColorPrimary)
 }
 
-func renderQueryFooter(width int) string {
+func (m QueryModel) renderQueryFooter(width int) string {
+	modeLabel := "natural language"
+	if m.mode == queryModeRaw {
+		modeLabel = "raw SQL"
+	}
 	keys := []string{
 		keyHint("ctrl+e", "execute"),
-		keyHint("ctrl+n", "mode"),
+		keyHint("ctrl+n", "mode ("+modeLabel+")"),
 		keyHint("tab", "focus"),
+		keyHint("j/k", "scroll"),
 		keyHint("c", "clear"),
 		keyHint("esc", "back"),
 	}
@@ -581,8 +716,8 @@ func renderQueryFooter(width int) string {
 		Render(footerLine(keys, width-2))
 }
 
-// RunQueryUI runs the interactive query screen and returns when the user exits.
-func RunQueryUI(sqlDB *db.DB, client services.AIClient, model string) error {
+// RunQueryUI runs the interactive query screen and returns the result.
+func RunQueryUI(sqlDB *db.DB, client services.AIClient, model string) QueryResult {
 	dialect := "sqlite"
 	if sqlDB.Driver() == "postgres" {
 		dialect = "postgres"
@@ -590,6 +725,13 @@ func RunQueryUI(sqlDB *db.DB, client services.AIClient, model string) error {
 
 	m := newQueryModel(sqlDB, client, model, dialect)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return QueryResult{Err: fmt.Errorf("query UI: %w", err)}
+	}
+
+	if qm, ok := finalModel.(QueryModel); ok {
+		return qm.result
+	}
+	return QueryResult{}
 }

@@ -192,10 +192,20 @@ The level is set once at startup — changing it in the config screen takes effe
 
 | Level | Used for |
 |-------|---------|
-| `Error` | Goose migration failures (`gooseAdapter.Fatalf`) |
+| `Error` | Goose migration failures (`gooseAdapter.Fatalf`), NL→SQL generation failures (API errors, empty responses), query execution failures (bad SQL, DB connection lost) |
 | `Warn` | Non-fatal startup failures: backfill errors, unable to check SQLite recipe count |
 | `Info` | Significant lifecycle events: migration started/complete, backup started/complete, SQLite cleanup started/complete |
-| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces |
+| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces, NL→SQL generation started/completed (question, dialect, SQL excerpt, duration), query execution started/completed (SQL excerpt, row count, duration), validation rejections (keyword, reason) |
+
+### Logging conventions for I/O and external services
+
+Services that call external APIs, execute user-provided queries, or mutate state should log via `slog.Default()` — matching the pattern in `internal/scaling/scaling.go` (no passed-in logger, no package-level var):
+
+- **Debug start/end**: Log the intent at `Debug` before the call, and the result at `Debug` after success. Include `duration` on completion.
+- **Error on failure**: Log failures at `Error` with the `error` value. These appear at all log levels.
+- **Truncate user input**: Truncate user-supplied strings (questions, SQL) to ~120 chars in log output via `truncateLog()`.
+- **Never log secrets**: Do not log API keys, passwords, full DSN strings, or full schema text.
+- **Debug is invisible at default level**: `Debug`-level logs only appear when the user sets `log_level = "debug"` in config. Per-user-request detail (queries, generation) belongs at `Debug`, not `Info`.
 
 The hydration debug traces (`debugHydration` in `internal/scaling/scaling.go`) log per-ingredient type, gram weight, dry/wet contribution, totals, hydration percentage, and baker's percentages. They are gated at `Debug` so they are invisible at the default `Info` level and only appear when the user explicitly sets `log_level = "debug"` in their config.
 
