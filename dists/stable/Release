@@ -1,0 +1,31 @@
+Architectures: amd64 arm64
+Codename: stable
+Components: main
+Date: Fri, 21 Aug 2026 01:25:24 +0000
+Label: enplace
+Origin: enplace
+Suite: stable
+MD5Sum:
+ 0a28a04addeedfeeb89037e9e943ae8b              144 Release
+ 772a6265b4c2025eb2a5c840ae2f0514              944 main/binary-amd64/Packages
+ 29c810ccd2168dbb266e475d87a756d5              478 main/binary-amd64/Packages.gz
+ 3d4cab08166ce3a33c8f9c285ae8d661              884 main/binary-arm64/Packages
+ 29b77aeb1fb74b6285de4bb744eedf1a              464 main/binary-arm64/Packages.gz
+SHA1:
+ 78bd61a3f39554dd1518f88f4a36d7e794bc4f2b              144 Release
+ 1abfeaa54551abd2a6e4f62a2431843e817110fc              944 main/binary-amd64/Packages
+ 289d3027b6c042c664919c96067be2f1d086ab95              478 main/binary-amd64/Packages.gz
+ ed5a265c156eb33b761b93d7213e3f8208df7b7e              884 main/binary-arm64/Packages
+ a90ae7b9452c746ed0b085bfb217472c023f7f74              464 main/binary-arm64/Packages.gz
+SHA256:
+ 94f2620dd16dabb3361c712b15307e660629af59cb9e9d85514d13ae02efe9c0              144 Release
+ 5d5299e79740f826ef678bc24bb432179df9d6bb3ca5a395ce752264e870cc6d              944 main/binary-amd64/Packages
+ 7781414e5a6bdbe50a2a1f172cc4eb11b0861713523a4fd5ef916459256cbba9              478 main/binary-amd64/Packages.gz
+ 7246ee9f53d65f94640a7a7f315ca6e41fce0f6431982c5101382c79ac2352b8              884 main/binary-arm64/Packages
+ f2faf3a1d3764f877659adfdff01fdc11076fc76e2de8be5c4dd6d79dba0ace1              464 main/binary-arm64/Packages.gz
+SHA512:
+ 156d6631d9eeca7667667cf03d8dd8226f4ecedd76809d54ccb45642f92ab56f7d3c6504427abcc80c332dca90031f150e639319ba41b9490a2bbec3956b6c21              144 Release
+ c202e866b256fba8f889355e6d54f2bea9cb58360b2a5b3c8f1d65279bea1cd6ce6d61616452396a259bcb61452403950f72fa565ec1e550c255a12b45400e99              944 main/binary-amd64/Packages
+ 005abbb02894fed2c899f52a50f50824d500d9bab6a08811dcac21d2d7ac199a3429a3f15bdd9c1c05f3387265d516dc4a9fbc23010fc3581f183dd510b516b1              478 main/binary-amd64/Packages.gz
+ c5fb6f89ccca4ec559904a7d8116a97d82b44451d7ea88b7498ff3fec37ebec8576ffc2350f5a3eebefcd9e084c5583b1c7454ee71be01e74d4960e9ca6f418d              884 main/binary-arm64/Packages
+ ea9930c7b767b6f71895be975b0f99bb74be645816bbce3d14fe55eedfadfaa3e261fcbd12316a362ed1ff1bdf6531e89fe674682a9af7db1823a3e56e6735b3              464 main/binary-arm64/Packages.gz

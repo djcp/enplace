@@ -1,0 +1,28 @@
+Package: enplace
+Version: 1.6.0
+Architecture: arm64
+Maintainer: dan@collispuro.net
+Installed-Size: 32704
+Filename: pool/main/e/enplace/enplace_1.6.0_linux_arm64.deb
+Size: 10648196
+MD5sum: d7f80876ea8db5891eb720ded2f1a970
+SHA1: 29c252b07f77d65df63f21a35bf08448b3fb4ac8
+SHA256: 6fde43f7a96dff53905243a0a549aefeb6921824d4a229c2aca9d462a1fea27b
+Priority: optional
+Homepage: https://github.com/djcp/enplace
+Description: AI-powered recipe manager
+
+Package: enplace
+Version: 1.7.0
+Architecture: arm64
+Maintainer: dan@collispuro.net
+Installed-Size: 32896
+Filename: pool/main/e/enplace/enplace_1.7.0_linux_arm64.deb
+Size: 10695976
+MD5sum: e391db4366e82ac8990857cfa2573ae5
+SHA1: f968caa84e75c57a8c97584e03d2ef8d1faae98a
+SHA256: 3cfafeb5e6e57bcd4da45138e26cdce5eac80296fb57615c29eac6028ad04639
+Priority: optional
+Homepage: https://github.com/djcp/enplace
+Description: AI-powered recipe manager
+
