@@ -4,4 +4,4 @@
 //	go build -ldflags "-X github.com/djcp/enplace/internal/version.Version=1.2.3"
 package version
 
-var Version = "1.6.0"
+var Version = "1.7.0"
