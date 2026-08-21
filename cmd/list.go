@@ -7,6 +7,8 @@ import (
 
 	"github.com/djcp/enplace/internal/db"
 	"github.com/djcp/enplace/internal/export"
+	"github.com/djcp/enplace/internal/models"
+	"github.com/djcp/enplace/internal/services"
 	"github.com/djcp/enplace/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -15,6 +17,9 @@ import (
 var (
 	listQuery  string
 	listStatus string
+
+	// pendingQueryResult holds query results to pass to the next RunListUI call.
+	pendingQueryResult *ui.RunListUIQuery
 )
 
 var listCmd = &cobra.Command{
@@ -72,11 +77,30 @@ func runList(_ *cobra.Command, _ []string) error {
 	// detail view directly (used after editing from the detail view).
 	var pendingDetailID int64
 
+	// pendingQueryResult, when set, passes query results to the next RunListUI call.
+	var pendingQueryResult *ui.RunListUIQuery
+
 	// Interactive path: loop between the list browser and recipe detail view.
 	for {
-		recipes, err := db.ListRecipes(sqlDB, filter)
-		if err != nil {
-			return fmt.Errorf("loading recipes: %w", err)
+		var recipes []models.Recipe
+		var listArgs []ui.RunListUIQuery
+		if pendingQueryResult != nil {
+			listArgs = append(listArgs, *pendingQueryResult)
+			pendingQueryResult = nil
+			// Load the full list so m.recipes is the complete set —
+			// when the user presses esc to clear query results,
+			// activeRecipes() falls back to m.recipes (the full list).
+			var err error
+			recipes, err = db.ListRecipes(sqlDB, filter)
+			if err != nil {
+				return fmt.Errorf("loading recipes: %w", err)
+			}
+		} else {
+			var err error
+			recipes, err = db.ListRecipes(sqlDB, filter)
+			if err != nil {
+				return fmt.Errorf("loading recipes: %w", err)
+			}
 		}
 
 		var selectedID int64
@@ -86,11 +110,11 @@ func runList(_ *cobra.Command, _ []string) error {
 			selectedID = pendingDetailID
 			pendingDetailID = 0
 		} else {
-			var goAdd, goHome, goManage, searchConfirmed bool
+			var goAdd, goHome, goManage, goQuery, searchConfirmed bool
 			var filterState ui.FilterState
 			var deleteID, editID int64
 
-			selectedID, goAdd, goHome, searchConfirmed, filterState, deleteID, editID, goManage, err = ui.RunListUI(
+			selectedID, goAdd, goHome, searchConfirmed, filterState, deleteID, editID, goManage, goQuery, err = ui.RunListUI(
 				recipes,
 				ui.FilterState{
 					Query:      filter.Query,
@@ -101,6 +125,7 @@ func runList(_ *cobra.Command, _ []string) error {
 					MinRating:  filter.MinRating,
 				},
 				searchData,
+				listArgs...,
 			)
 			if err != nil {
 				return err
@@ -123,6 +148,35 @@ func runList(_ *cobra.Command, _ []string) error {
 			if goManage {
 				if err := runManageUI(); err != nil {
 					return err
+				}
+				searchData, _ = loadSearchData()
+				continue
+			}
+			if goQuery {
+				if cfg.AnthropicAPIKey == "" {
+					fmt.Fprintln(os.Stderr, "Query requires an Anthropic API key — run `enplace config` to set one")
+				} else {
+					result := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel)
+					if result.Err != nil {
+						return result.Err
+					}
+					if len(result.RecipeIDs) > 0 {
+						fetched := make([]models.Recipe, 0, len(result.RecipeIDs))
+						for _, id := range result.RecipeIDs {
+							r, err := db.GetRecipe(sqlDB, id)
+							if err != nil {
+								continue
+							}
+							fetched = append(fetched, *r)
+						}
+						qr := ui.RunListUIQuery{
+							Recipes: fetched,
+							Text:    result.QueryText,
+							SQL:     result.SQL,
+							ModeNL:  result.QueryText != "",
+						}
+						pendingQueryResult = &qr
+					}
 				}
 				searchData, _ = loadSearchData()
 				continue
@@ -164,7 +218,7 @@ func runList(_ *cobra.Command, _ []string) error {
 			return err
 		}
 
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goQuery, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(
 			recipe,
 			ui.FilterState{
 				Query:      filter.Query,
@@ -208,6 +262,36 @@ func runList(_ *cobra.Command, _ []string) error {
 		if goManage {
 			if err := runManageUI(); err != nil {
 				return err
+			}
+			searchData, _ = loadSearchData()
+			pendingDetailID = recipe.ID
+			continue
+		}
+		if goQuery {
+			if cfg.AnthropicAPIKey == "" {
+				fmt.Fprintln(os.Stderr, "Query requires an Anthropic API key — run `enplace config` to set one")
+			} else {
+				result := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel)
+				if result.Err != nil {
+					return result.Err
+				}
+				if len(result.RecipeIDs) > 0 {
+					fetched := make([]models.Recipe, 0, len(result.RecipeIDs))
+					for _, id := range result.RecipeIDs {
+						r, err := db.GetRecipe(sqlDB, id)
+						if err != nil {
+							continue
+						}
+						fetched = append(fetched, *r)
+					}
+					qr := ui.RunListUIQuery{
+						Recipes: fetched,
+						Text:    result.QueryText,
+						SQL:     result.SQL,
+						ModeNL:  result.QueryText != "",
+					}
+					pendingQueryResult = &qr
+				}
 			}
 			searchData, _ = loadSearchData()
 			pendingDetailID = recipe.ID

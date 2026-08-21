@@ -78,8 +78,15 @@ type ListModel struct {
 	goAdd           bool
 	goHome          bool
 	goManage        bool
+	goQuery         bool
 	searchConfirmed bool
 	editID          int64
+
+	// Query result state — when set, replaces m.activeRecipes() as the displayed list.
+	queryResults []models.Recipe
+	queryText    string // NL question (empty for raw SQL)
+	querySQL     string // the executed SQL
+	queryModeNL  bool   // true = NL query, false = raw SQL
 
 	// Delete confirmation state.
 	confirmingDelete bool
@@ -126,6 +133,9 @@ func (m ListModel) EditID() int64 { return m.editID }
 // GoManage returns true when the user pressed "m" to open the manage screen.
 func (m ListModel) GoManage() bool { return m.goManage }
 
+// GoQuery returns true when the user pressed "x" to open the query screen.
+func (m ListModel) GoQuery() bool { return m.goQuery }
+
 // Query returns the current text search query.
 func (m ListModel) Query() string { return m.query }
 
@@ -144,7 +154,17 @@ func (m ListModel) Filter() FilterState {
 func (m ListModel) hasActiveFilters() bool {
 	return m.query != "" || len(m.filterCourses) > 0 ||
 		len(m.filterInfluences) > 0 || m.filterStatus != "" || m.filterIsBread ||
-		m.filterMinRating > 0
+		m.filterMinRating > 0 || len(m.queryResults) > 0
+}
+
+// activeRecipes returns the recipe slice currently being displayed.
+// When a query result is active, it returns the query results; otherwise
+// the full (or filtered) list.
+func (m ListModel) activeRecipes() []models.Recipe {
+	if len(m.queryResults) > 0 {
+		return m.queryResults
+	}
+	return m.recipes
 }
 
 func (m ListModel) Init() tea.Cmd { return nil }
@@ -188,6 +208,9 @@ func (m ListModel) toFilterState() filterState {
 		savedIsBread:    m.savedIsBread,
 		savedMinRating:  m.savedMinRating,
 		active:          m.typing,
+		queryActive:     len(m.queryResults) > 0,
+		queryText:       m.queryText,
+		queryModeNL:     m.queryModeNL,
 	}
 }
 
@@ -247,6 +270,15 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
+		if len(m.queryResults) > 0 {
+			// Clear query results and restore the original list.
+			m.queryResults = nil
+			m.queryText = ""
+			m.querySQL = ""
+			m.cursor = 0
+			m.offset = 0
+			return m, nil
+		}
 		if m.hasActiveFilters() {
 			// Clear active filters and return to the full list.
 			m.goHome = true
@@ -259,21 +291,29 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "m":
 		m.goManage = true
 		return m, tea.Quit
+	case "x":
+		m.goQuery = true
+		return m, tea.Quit
 	case "h":
 		m.goHome = true
 		return m, tea.Quit
 	case "e":
-		if len(m.recipes) > 0 {
-			m.editID = m.recipes[m.cursor].ID
+		if len(m.activeRecipes()) > 0 {
+			m.editID = m.activeRecipes()[m.cursor].ID
 			return m, tea.Quit
 		}
 	case "d":
-		if len(m.recipes) > 0 {
+		if len(m.activeRecipes()) > 0 {
 			m.confirmingDelete = true
-			m.deleteTargetID = m.recipes[m.cursor].ID
-			m.deleteTargetName = m.recipes[m.cursor].Name
+			m.deleteTargetID = m.activeRecipes()[m.cursor].ID
+			m.deleteTargetName = m.activeRecipes()[m.cursor].Name
 		}
 	case "/", "right":
+		if len(m.queryResults) > 0 {
+			m.queryResults = nil
+			m.queryText = ""
+			m.querySQL = ""
+		}
 		m = m.enterTypingMode()
 		m.filterFocus = ffText
 	case "up", "k":
@@ -284,7 +324,7 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "down", "j":
-		if m.cursor < len(m.recipes)-1 {
+		if m.cursor < len(m.activeRecipes())-1 {
 			m.cursor++
 			visible := m.visibleRows()
 			if m.cursor >= m.offset+visible {
@@ -292,8 +332,8 @@ func (m ListModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "enter", " ":
-		if len(m.recipes) > 0 {
-			m.selectedID = m.recipes[m.cursor].ID
+		if len(m.activeRecipes()) > 0 {
+			m.selectedID = m.activeRecipes()[m.cursor].ID
 			return m, tea.Quit
 		}
 	case "ctrl+c":
@@ -342,7 +382,7 @@ func (m ListModel) View() string {
 	}
 
 	// Empty DB — show a centered info box with fill so the footer stays pinned.
-	if len(m.recipes) == 0 && !m.hasActiveFilters() && !m.typing {
+	if len(m.activeRecipes()) == 0 && !m.hasActiveFilters() && !m.typing {
 		sb.WriteString(flatRule(m.width, "🍳 enplace", "", ColorBorder, ColorPrimary))
 		sb.WriteString("\n")
 		sb.WriteString(m.viewEmpty())
@@ -378,21 +418,21 @@ func (m ListModel) View() string {
 // scrollHint returns the bottom-border position indicator for the list panel:
 // "5–18 of 42" when scrollable, "N recipes" otherwise, "" when empty.
 func (m ListModel) scrollHint() string {
-	if len(m.recipes) == 0 {
+	if len(m.activeRecipes()) == 0 {
 		return ""
 	}
 	visible := m.visibleRows()
-	if len(m.recipes) > visible {
+	if len(m.activeRecipes()) > visible {
 		end := m.offset + visible
-		if end > len(m.recipes) {
-			end = len(m.recipes)
+		if end > len(m.activeRecipes()) {
+			end = len(m.activeRecipes())
 		}
-		return fmt.Sprintf("%d–%d of %d", m.offset+1, end, len(m.recipes))
+		return fmt.Sprintf("%d–%d of %d", m.offset+1, end, len(m.activeRecipes()))
 	}
-	if len(m.recipes) == 1 {
+	if len(m.activeRecipes()) == 1 {
 		return "1 recipe"
 	}
-	return fmt.Sprintf("%d recipes", len(m.recipes))
+	return fmt.Sprintf("%d recipes", len(m.activeRecipes()))
 }
 
 // renderListPane renders the list panel content (column headers + recipe
@@ -401,7 +441,7 @@ func (m ListModel) renderListPane(width int) string {
 	var sb strings.Builder
 	visible := m.visibleRows()
 
-	if len(m.recipes) == 0 {
+	if len(m.activeRecipes()) == 0 {
 		// Header row only, then no-match message.
 		// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
 		sb.WriteString(buildRecipeTable(nil, -1, width))
@@ -411,8 +451,8 @@ func (m ListModel) renderListPane(width int) string {
 	}
 
 	end := m.offset + visible
-	if end > len(m.recipes) {
-		end = len(m.recipes)
+	if end > len(m.activeRecipes()) {
+		end = len(m.activeRecipes())
 	}
 	rendered := end - m.offset
 	selectedIdx := m.cursor - m.offset
@@ -421,7 +461,7 @@ func (m ListModel) renderListPane(width int) string {
 	}
 
 	// lipgloss's MaxHeight in Render strips the table's trailing \n; add it back.
-	sb.WriteString(buildRecipeTable(m.recipes[m.offset:end], selectedIdx, width))
+	sb.WriteString(buildRecipeTable(m.activeRecipes()[m.offset:end], selectedIdx, width))
 	return sb.String()
 }
 
@@ -654,6 +694,7 @@ func renderFooter(width int) string {
 		keyHint("a", "add"),
 		keyHint("/", "filter"),
 		keyHint("m", "manage"),
+		keyHint("x", "query"),
 		keyHint("q", "quit"),
 	}
 	return lipgloss.NewStyle().
@@ -737,19 +778,35 @@ func truncate(s string, max int) string {
 // Returns the selected recipe ID (or 0), navigation signals, the active filter state,
 // the recipe ID confirmed for deletion (or 0), the recipe ID to edit (or 0),
 // whether the user pressed "m" to open manage, and any error.
+// RunListUIQuery holds query metadata to display in the filter pane.
+type RunListUIQuery struct {
+	Recipes []models.Recipe
+	Text    string // NL question (empty for raw SQL)
+	SQL     string
+	ModeNL  bool
+}
+
 func RunListUI(
 	recipes []models.Recipe,
 	initial FilterState,
 	sd SearchData,
+	queryResult ...RunListUIQuery,
 ) (selectedID int64, goAdd bool, goHome bool, searchConfirmed bool,
-	filter FilterState, deleteID int64, editID int64, goManage bool, err error) {
+	filter FilterState, deleteID int64, editID int64, goManage bool, goQuery bool, err error) {
 	m := NewListModel(recipes, initial, sd)
+	if len(queryResult) > 0 {
+		qr := queryResult[0]
+		m.queryResults = qr.Recipes
+		m.queryText = qr.Text
+		m.querySQL = qr.SQL
+		m.queryModeNL = qr.ModeNL
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, runErr := p.Run()
 	if runErr != nil {
-		return 0, false, false, false, FilterState{}, 0, 0, false, runErr
+		return 0, false, false, false, FilterState{}, 0, 0, false, false, runErr
 	}
 	fm := final.(ListModel)
 	return fm.SelectedID(), fm.GoAdd(), fm.GoHome(), fm.SearchConfirmed(),
-		fm.Filter(), fm.DeleteTargetID(), fm.EditID(), fm.GoManage(), nil
+		fm.Filter(), fm.DeleteTargetID(), fm.EditID(), fm.GoManage(), fm.GoQuery(), nil
 }

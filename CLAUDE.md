@@ -17,6 +17,16 @@ If you changed anything visible in the TUI (layout, colors, new screens), regene
 
 Requires `tmux`, `asciinema`, and `termtosvg` — the script will tell you what's missing and how to install it.
 
+## Schema files
+
+If you add or modify a migration in `internal/db/migrations/`, update the schema constants:
+
+1. Extract the current schema:
+   - SQLite: `sqlite3 ~/.local/share/enplace/recipes.db .schema`
+   - PostgreSQL: `pg_dump --schema-only $TEST_POSTGRES_DSN`
+2. Update `internal/services/schema_sqlite.go` (constant `SQLiteSchema`)
+3. Update `internal/services/schema_postgres.go` (constant `PostgresSchema`)
+
 ## Creating a release
 
 Releases are built by **GoReleaser** (`.goreleaser.yaml`), run by `.github/workflows/release.yaml` **on a pushed `v*` tag**. GoReleaser creates the GitHub release itself, cross-compiles all six targets, uploads the archives + a single `checksums.txt`, and (for non-prerelease tags) publishes the Homebrew cask, Scoop manifest, and APT repository. There is nothing to build locally, and **no `gh release create` step** — pushing the tag is what triggers everything.
@@ -182,10 +192,20 @@ The level is set once at startup — changing it in the config screen takes effe
 
 | Level | Used for |
 |-------|---------|
-| `Error` | Goose migration failures (`gooseAdapter.Fatalf`) |
+| `Error` | Goose migration failures (`gooseAdapter.Fatalf`), NL→SQL generation failures (API errors, empty responses), query execution failures (bad SQL, DB connection lost) |
 | `Warn` | Non-fatal startup failures: backfill errors, unable to check SQLite recipe count |
 | `Info` | Significant lifecycle events: migration started/complete, backup started/complete, SQLite cleanup started/complete |
-| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces |
+| `Debug` | Per-item detail: individual recipes imported/skipped, per-table cleanup counts, goose per-migration step output (`gooseAdapter.Printf`), hydration calculation traces, NL→SQL generation started/completed (question, dialect, SQL excerpt, duration), query execution started/completed (SQL excerpt, row count, duration), validation rejections (keyword, reason) |
+
+### Logging conventions for I/O and external services
+
+Services that call external APIs, execute user-provided queries, or mutate state should log via `slog.Default()` — matching the pattern in `internal/scaling/scaling.go` (no passed-in logger, no package-level var):
+
+- **Debug start/end**: Log the intent at `Debug` before the call, and the result at `Debug` after success. Include `duration` on completion.
+- **Error on failure**: Log failures at `Error` with the `error` value. These appear at all log levels.
+- **Truncate user input**: Truncate user-supplied strings (questions, SQL) to ~120 chars in log output via `truncateLog()`.
+- **Never log secrets**: Do not log API keys, passwords, full DSN strings, or full schema text.
+- **Debug is invisible at default level**: `Debug`-level logs only appear when the user sets `log_level = "debug"` in config. Per-user-request detail (queries, generation) belongs at `Debug`, not `Info`.
 
 The hydration debug traces (`debugHydration` in `internal/scaling/scaling.go`) log per-ingredient type, gram weight, dry/wet contribution, totals, hydration percentage, and baker's percentages. They are gated at `Debug` so they are invisible at the default `Info` level and only appear when the user explicitly sets `log_level = "debug"` in their config.
 
@@ -441,6 +461,59 @@ After a destructive operation that returns the user to the list view (e.g. delet
 ### DB layer (`internal/db/manage_queries.go`)
 
 Tag and ingredient merge operations use transactions: repoint foreign-key joins (`recipe_tags` or `recipe_ingredients`) then delete the source row. Unit merge is a plain bulk `UPDATE recipe_ingredients SET unit=target WHERE unit=source` — units are inline strings, not a separate table.
+
+## Query engine (`internal/ui/query.go`, `cmd/query.go`)
+
+### Two-column layout
+
+The query screen uses a two-column Bubbletea model. The **left column** is split vertically: a messages pane (top, ~20% of column height) shows the NL explanation and execution feedback, and an SQL editor pane (bottom) fills the rest. The **right column** is a schema browser showing all tables and columns. It is accessible via the `x` key from the recipe list and detail views, or via `enplace query` from the CLI.
+
+### List integration
+
+When the query screen closes successfully, it returns a `QueryResult` struct containing the matching recipe IDs, the NL question (if any), and the executed SQL. The recipe list replaces its contents with those recipes and shows the query source in the filter pane. Pressing `esc` in the list clears the query results and restores the full recipe list. Pressing `/` or `right` to enter filter mode also clears query results, preventing keystrokes from being consumed by the invisible filter input.
+
+### Input modes
+
+Two modes toggled with `ctrl+n`:
+- **Natural language**: user types a question, `GenerateSQL` sends it to Claude with the schema, gets back SQL + explanation. Results are cached (`sync.Mutex`-guarded `map[string]string`) so repeated identical questions skip the API call.
+- **Raw SQL**: user types SQL directly, `ValidateReadOnly` checks it, then executes.
+
+Both modes converge at the same `ExecuteQuery` path.
+
+### Safety
+
+`ValidateReadOnly` in `internal/services/sql_safety.go` is the gatekeeper. It splits on semicolons, strips comments, and rejects any statement whose first keyword is not `select`, `with`, `explain`, or `pragma`. It catches multi-statement injection (`SELECT 1; DROP TABLE`). Both the CLI and TUI call it before execution.
+
+### Schema constants
+
+`internal/services/schema_sqlite.go` and `schema_postgres.go` export `SQLiteSchema` and `PostgresSchema` constants — the full DDL. The NL→SQL system prompt includes the relevant schema. When you add or modify a migration, update these constants (see "Schema files" above).
+
+### Key bindings (TUI)
+
+Focus cycles: editor → messages → schema → editor (via `tab`).
+
+| Focus | Key | Action |
+|-------|-----|--------|
+| Editor | `ctrl+n` | Toggle NL/raw mode |
+| Editor | `ctrl+e` / `ctrl+j` | Execute query |
+| Messages | `j/k` | Scroll up/down |
+| Messages | `pgup/pgdown` | Page up/down |
+| Messages | `g` / `G` | Go to top / bottom |
+| Messages | `c` | Clear messages |
+| Schema | `j/k` | Navigate tables/columns |
+| Schema | `pgup/pgdown` | Page up/down |
+| Schema | `g` / `G` | Go to top / bottom |
+| Any | `tab` | Cycle focus |
+| Any | `esc` / `ctrl+c` | Back to previous view |
+
+### CLI usage
+
+```sh
+enplace query "what are my highest rated Italian recipes?"
+enplace query --sql "SELECT name, rating FROM recipes WHERE rating >= 4"
+enplace query --json "show me all bread recipes"
+enplace query   # interactive prompt
+```
 
 ## Bread/dough recipes and hydration (`is_bread`, `ingredient_type`)
 

@@ -151,6 +151,7 @@ Removing the binary never deletes your recipes, config, or logs. To remove those
 - **Bread/dough hydration and baker's percentages** — recipes marked as bread or dough automatically show hydration percentage and a full baker's percentages table. Hydration = total wet ÷ total dry × 100, where "dry" includes flour, salt, yeast, seeds, and all other non-fat solids. Baker's percentages use total flour weight as the 100% base (the standard baker's math definition), so every other ingredient is expressed relative to flour. Saturated fats (butter, lard, etc.) appear in the baker's percentages table but are excluded from the hydration ratio. Sourdough starters and levains are split 50/50 between wet and dry (assuming a 100% hydration starter). These figures appear in the detail view, the scale view, and all export formats (PDF, RTF, Markdown, plain text)
 - **Edit recipes** — open a pre-populated form from the list or detail view with `e`; supports the same autocomplete as manual entry
 - **Print preview & export** — `p` in the detail view opens a full-screen preview with options to save as PDF, RTF, Markdown, or plain text to `~/Downloads/`, or send directly to the system printer via CUPS (`lp`/`lpr`); duplicate filenames are deduplicated automatically with a `-2`, `-3`, … suffix
+- **Query your recipes** — ask natural-language questions or write raw SQL from a full-screen query editor; results replace the recipe list, and `esc` restores the full view
 - **Interactive browser** — full-screen recipe list with live `/` search and keyboard navigation
 - **Styled output** — ingredient tables, markdown-rendered directions, tag pills, and timing summaries in the terminal
 - **Data management** — `m` from the list or detail view opens a manage screen for cleaning up tags (rename, merge, delete by context), ingredients (rename, merge), and serving units (rename, merge); also browses AI run history with individual delete and bulk prune of runs older than 30 days
@@ -170,6 +171,9 @@ enplace add --paste              Add a recipe from pasted text
 enplace add --quiet <url>        Extract and save silently (for scripting)
 enplace list                     Open the interactive recipe browser
 enplace list --query foo         Non-interactive filtered list (also when stdout is not a TTY)
+enplace query                    Open the interactive query editor (TUI)
+enplace query "<question>"       Ask a natural-language question (non-interactive)
+enplace query --sql "<sql>"      Run a raw SQL query (non-interactive)
 enplace show <id>                Display a recipe by ID
 enplace config                   View or update configuration (API key, model)
 enplace export                   Export all recipes to one JSON or text file
@@ -215,6 +219,7 @@ Opens a full-screen browser:
 | `↑` / `↓` | Navigate |
 | `/` | Open the filter pane (press Enter to confirm, Esc to cancel) |
 | `enter` | Open recipe detail |
+| `x` | Open the query editor |
 | `e` | Edit the selected recipe |
 | `d` | Delete (with confirmation) |
 | `a` | Add a new recipe |
@@ -234,6 +239,7 @@ Falls back to a plain table when stdout is not a TTY or `--query` is set.
 |-----|--------|
 | `↑` / `↓` or `j` / `k` | Scroll |
 | `/` | Search (carries the query back to the list on `h`) |
+| `x` | Open the query editor |
 | `e` | Edit this recipe |
 | `p` | Open print preview / export |
 | `s` | Open ingredient scaling |
@@ -295,6 +301,32 @@ Opened with `m` from the list or detail view. A landing screen with five section
 **Serving Units** — same rename/merge flow; units are inline strings in `recipe_ingredients.unit`, so merge is a bulk `UPDATE` with no orphan row cleanup needed.
 
 **AI Classifier Runs** — scrollable list showing date, service, model, success/failure, duration, and recipe name. `enter` opens a scrollable detail view with the full system prompt, user prompt, and raw AI response (with humanized timestamps and timezone). `r` in the detail view triggers a retry of AI extraction for the associated recipe — available for any run tied to an existing recipe (not limited to failed runs). `d` deletes an individual run with a brief inline confirmation overlay; the list shows a notice on return. `p` prompts to prune all runs older than 30 days and displays the count deleted.
+
+### Query
+
+Opened with `x` from the list or detail view, or via `enplace query` from the CLI. A two-column full-screen editor: the left column has a messages pane (top) showing the NL explanation and query results, and an SQL editor pane (bottom) where you type your question or query. The right column is a schema browser showing all tables and columns.
+
+| Key | Action |
+|-----|--------|
+| `ctrl+n` | Toggle between natural language and raw SQL mode |
+| `ctrl+e` | Execute the query |
+| `tab` | Cycle focus between editor, messages, and schema |
+| `j` / `k` | Scroll (messages or schema, depending on focus) |
+| `pgup` / `pgdown` | Page up/down (messages or schema) |
+| `c` | Clear messages |
+| `esc` | Back to the previous view |
+
+In **natural language** mode, type a question like "what are my highest rated Italian recipes?" and press `ctrl+e`. Claude generates SQL from the schema, explains it in plain English, and executes it. In **raw SQL** mode, type a `SELECT` query directly — it is validated as read-only before execution.
+
+Successful queries return matching recipe IDs to the recipe list, replacing the current view with the results. The filter pane shows the query source (the NL question or "SQL query"). Press `esc` in the list to clear the results and restore the full recipe list.
+
+From the CLI:
+
+```sh
+enplace query "what are my highest rated Italian recipes?"
+enplace query --sql "SELECT name, rating FROM recipes WHERE rating >= 4"
+enplace query   # opens the interactive TUI
+```
 
 ### Edit form
 

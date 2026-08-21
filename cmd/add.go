@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/djcp/enplace/internal/db"
@@ -173,7 +174,7 @@ func runAddQuiet(sourceURL string) error {
 func runDetailLoop(recipe *models.Recipe) error {
 	sd, _ := loadSearchData()
 	for {
-		goHome, goAdd, goEdit, goPrint, goScale, goManage, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
+		goHome, goAdd, goEdit, goPrint, goScale, goManage, goQuery, goRetry, deleteConfirmed, updateRating, newRating, updateNotes, newNotes, returnFilter, err := ui.RunDetailUI(recipe, ui.FilterState{}, sd)
 		if err != nil {
 			return err
 		}
@@ -214,6 +215,34 @@ func runDetailLoop(recipe *models.Recipe) error {
 		if goManage {
 			if err := runManageUI(); err != nil {
 				return err
+			}
+			continue
+		}
+		if goQuery {
+			if cfg.AnthropicAPIKey == "" {
+				fmt.Fprintln(os.Stderr, "Query requires an Anthropic API key — run `enplace config` to set one")
+			} else {
+				result := ui.RunQueryUI(sqlDB, services.NewAnthropicClient(cfg.AnthropicAPIKey), cfg.AnthropicModel)
+				if result.Err != nil {
+					return result.Err
+				}
+				if len(result.RecipeIDs) > 0 {
+					fetched := make([]models.Recipe, 0, len(result.RecipeIDs))
+					for _, id := range result.RecipeIDs {
+						r, err := db.GetRecipe(sqlDB, id)
+						if err != nil {
+							continue
+						}
+						fetched = append(fetched, *r)
+					}
+					pendingQueryResult = &ui.RunListUIQuery{
+						Recipes: fetched,
+						Text:    result.QueryText,
+						SQL:     result.SQL,
+						ModeNL:  result.QueryText != "",
+					}
+					return runList(nil, nil)
+				}
 			}
 			continue
 		}
